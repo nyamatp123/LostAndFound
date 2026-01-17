@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  name          String
+  phone         String?
+  university    String?
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  items         Item[]
+  notifications Notification[]
+}
+
+model Item {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  type            String
+  title           String
+  description     String
+  category        String
+  attributes      Json
+  location        Json
+  timestamp       DateTime
+  imageUrls       Json
+  textEmbedding   Json
+  imageEmbeddings Json
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id])
+  lostMatches     Match[]  @relation("lostMatches")
+  foundMatches    Match[]  @relation("foundMatches")
+}
+
+model Match {
+  id                   Int      @id @default(autoincrement())
+  lostItemId           Int
+  foundItemId          Int
+  confidence           Float
+  breakdown            Json
+  explanation          String
+  status               String   @default("pending")
+  confirmedByLostUser  Boolean  @default(false)
+  confirmedByFoundUser Boolean  @default(false)
+  proofDetails         String?
+  createdAt            DateTime @default(now())
+  lostItem             Item     @relation("lostMatches", fields: [lostItemId], references: [id])
+  foundItem            Item     @relation("foundMatches", fields: [foundItemId], references: [id])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String
+  title     String
+  message   String
+  data      Json
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
