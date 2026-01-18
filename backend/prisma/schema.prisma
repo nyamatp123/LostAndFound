@@ -46,7 +46,7 @@ model Match {
   confidence           Float
   breakdown            Json
   explanation          String
-  status               String    @default("pending")
+  status               String    @default("pending") // pending, accepted, declined, negotiating, scheduling, awaiting_pickup, completed
   confirmedByLostUser  Boolean   @default(false)
   confirmedByFoundUser Boolean   @default(false)
   proofDetails         String?
@@ -56,6 +56,12 @@ model Match {
   resolvedReturnMethod String?   // The final determined method after both submit
   returnLocation       String?   // L&F location name/id if applicable
   notifiedAt           DateTime? // When the finder was notified to drop off
+  // Decline and counter-proposal fields
+  declineReason        String?   // 'wrong_person', 'suggest_alternative'
+  declineMessage       String?   // Optional message from finder
+  proposedReturnMethod String?   // Counter-proposal from finder
+  proposedLocation     String?   // Counter-proposal location
+  proposedLocationName String?   // Human readable location name
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   foundItem            Item      @relation("foundMatches", fields: [foundItemId], references: [id])

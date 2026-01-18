@@ -65,9 +65,10 @@ export default function LostScreen() {
   const theme = useAppTheme();
   const { items, isLoading, refetch, deleteItem, isDeleting } = useItems('lost');
 
-  // Categorize items - also include "active" for backwards compatibility
+  // Categorize items based on status
+  // unfound = no match yet, found/matched = match exists but not returned, returned = completed
   const unfoundItems = items.filter((item: Item) => item.status === 'unfound' || (item.status as string) === 'active');
-  const foundItems = items.filter((item: Item) => item.status === 'found' || item.status === 'matched');
+  const foundItems = items.filter((item: Item) => item.status === 'matched');
   const returnedItems = items.filter((item: Item) => item.status === 'returned');
 
   const handleDeleteItem = (item: Item) => {

@@ -16,6 +16,18 @@ export interface NotifyReturnData {
   locationName: string;
 }
 
+export interface DeclineClaimData {
+  reason: 'wrong_person' | 'suggest_alternative';
+  message?: string;
+}
+
+export interface ProposeAlternativeData {
+  returnMethod: 'in_person' | 'local_lost_and_found';
+  location?: string;
+  locationName?: string;
+  message?: string;
+}
+
 export interface GetMatchesParams {
   status?: string;
 }
@@ -24,6 +36,46 @@ export interface MatchStatusResponse extends Match {
   userRole: 'lost' | 'found';
   bothSubmitted: boolean;
   isResolved: boolean;
+}
+
+export interface ClaimDetailsResponse {
+  match: {
+    id: number;
+    status: string;
+    confidence: number;
+    lostUserPreference?: string;
+    foundUserPreference?: string;
+    resolvedReturnMethod?: string;
+    returnLocation?: string;
+    notifiedAt?: string;
+    declineReason?: string;
+    proposedReturnMethod?: string;
+    proposedLocation?: string;
+    proposedLocationName?: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  claimant: {
+    id: number;
+    name: string;
+    email: string;
+    phone?: string;
+  };
+  lostItem: {
+    id: number;
+    title: string;
+    description: string;
+    category: string;
+    location: any;
+    timestamp: string;
+    imageUrls?: string[];
+  };
+  foundItem: {
+    id: number;
+    title: string;
+    description: string;
+  };
+  finderState: string;
 }
 
 export const matchesApi = {
@@ -42,6 +94,16 @@ export const matchesApi = {
     return response.data;
   },
 
+  getClaimDetails: async (id: string): Promise<ClaimDetailsResponse> => {
+    const response = await apiClient.get<ClaimDetailsResponse>(`/matches/${id}/claim-details`);
+    return response.data;
+  },
+
+  getClaimsForFinder: async (): Promise<Match[]> => {
+    const response = await apiClient.get<Match[]>('/matches/claims');
+    return response.data;
+  },
+
   createMatch: async (data: CreateMatchData): Promise<Match> => {
     const response = await apiClient.post<Match>('/matches', data);
     return response.data;
@@ -54,6 +116,31 @@ export const matchesApi = {
 
   rejectMatch: async (id: string): Promise<Match> => {
     const response = await apiClient.post<Match>(`/matches/${id}/reject`);
+    return response.data;
+  },
+
+  acceptClaim: async (id: string): Promise<{ success: boolean; message: string; match: Match }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/accept`);
+    return response.data;
+  },
+
+  declineClaim: async (id: string, data: DeclineClaimData): Promise<{ success: boolean; message: string; match: Match }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/decline`, data);
+    return response.data;
+  },
+
+  proposeAlternative: async (id: string, data: ProposeAlternativeData): Promise<{ success: boolean; message: string; match: Match }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/propose`, data);
+    return response.data;
+  },
+
+  acceptProposal: async (id: string): Promise<{ success: boolean; message: string; match: Match }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/accept-proposal`);
+    return response.data;
+  },
+
+  rejectProposal: async (id: string): Promise<{ success: boolean; message: string; match: Match }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/reject-proposal`);
     return response.data;
   },
 

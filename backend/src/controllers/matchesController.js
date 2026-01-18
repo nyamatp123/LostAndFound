@@ -89,6 +89,18 @@ const createMatch = async (req, res) => {
       }
     });
 
+    // Update both items' status to 'matched'
+    await Promise.all([
+      prisma.item.update({
+        where: { id: lostId },
+        data: { status: "matched" }
+      }),
+      prisma.item.update({
+        where: { id: foundId },
+        data: { status: "matched" }
+      })
+    ]);
+
     // Notify the finder about the claim
     await createNotification(
       foundItem.userId,
@@ -952,6 +964,482 @@ const completeReturn = async (req, res) => {
   }
 };
 
+/**
+ * Get claim details for finder review
+ * Returns full details of the claim including claimant info
+ */
+const getClaimDetails = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        },
+        foundItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        }
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    // Verify user is the finder (owns the found item)
+    if (match.foundItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized to view this claim" });
+    }
+
+    // Determine current state for the finder
+    let finderState = "pending_review"; // Finder needs to accept/decline
+    
+    if (match.status === "declined") {
+      finderState = "declined";
+    } else if (match.status === "negotiating") {
+      // Finder made a counter-proposal, waiting for claimant
+      finderState = "awaiting_claimant_response";
+    } else if (match.status === "accepted" || match.status === "scheduling") {
+      if (!match.foundUserPreference) {
+        finderState = "needs_preference"; // Finder accepted but hasn't selected preference
+      } else if (!match.resolvedReturnMethod) {
+        finderState = "awaiting_resolution"; // Both haven't submitted preferences yet
+      } else if (match.resolvedReturnMethod === "local_lost_and_found" && !match.notifiedAt) {
+        finderState = "needs_dropoff"; // Finder needs to drop off at L&F
+      } else if (match.resolvedReturnMethod === "in_person") {
+        finderState = "scheduling_meetup";
+      } else {
+        finderState = "awaiting_pickup";
+      }
+    } else if (match.status === "awaiting_pickup") {
+      finderState = "awaiting_pickup";
+    } else if (match.status === "completed") {
+      finderState = "completed";
+    }
+
+    res.json({
+      match: {
+        id: match.id,
+        status: match.status,
+        confidence: match.confidence,
+        lostUserPreference: match.lostUserPreference,
+        foundUserPreference: match.foundUserPreference,
+        resolvedReturnMethod: match.resolvedReturnMethod,
+        returnLocation: match.returnLocation,
+        notifiedAt: match.notifiedAt,
+        declineReason: match.declineReason,
+        proposedReturnMethod: match.proposedReturnMethod,
+        proposedLocation: match.proposedLocation,
+        proposedLocationName: match.proposedLocationName,
+        createdAt: match.createdAt,
+        updatedAt: match.updatedAt
+      },
+      claimant: {
+        id: match.lostItem.user.id,
+        name: match.lostItem.user.name,
+        email: match.lostItem.user.email,
+        phone: match.lostItem.user.phone
+      },
+      lostItem: {
+        id: match.lostItem.id,
+        title: match.lostItem.title,
+        description: match.lostItem.description,
+        category: match.lostItem.category,
+        location: match.lostItem.location,
+        timestamp: match.lostItem.timestamp,
+        imageUrls: match.lostItem.imageUrls
+      },
+      foundItem: {
+        id: match.foundItem.id,
+        title: match.foundItem.title,
+        description: match.foundItem.description
+      },
+      finderState
+    });
+  } catch (error) {
+    console.error("Get claim details error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Finder accepts a claim
+ */
+const acceptClaim = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: { include: { user: true } },
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    if (match.foundItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized to accept this claim" });
+    }
+
+    if (match.status !== "pending") {
+      return res.status(400).json({ error: "Claim is not in pending state" });
+    }
+
+    // Update match status to accepted
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: "accepted",
+        confirmedByFoundUser: true
+      }
+    });
+
+    // Notify the claimant
+    await createNotification(
+      match.lostItem.userId,
+      "claim_accepted",
+      "Your Claim Was Accepted!",
+      `${user.name} has confirmed that the ${match.foundItem.title} belongs to you. Please select your return preference.`,
+      { matchId }
+    );
+
+    res.json({
+      success: true,
+      message: "Claim accepted successfully",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Accept claim error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Finder declines a claim
+ */
+const declineClaim = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+    const { reason, message } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const validReasons = ["wrong_person", "suggest_alternative"];
+    if (!reason || !validReasons.includes(reason)) {
+      return res.status(400).json({ error: "Invalid decline reason" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: { include: { user: true } },
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    if (match.foundItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized to decline this claim" });
+    }
+
+    // Update match and items
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: "declined",
+        declineReason: reason,
+        declineMessage: message || null
+      }
+    });
+
+    // Reset items to unfound state so they can be claimed again
+    await Promise.all([
+      prisma.item.update({
+        where: { id: match.lostItemId },
+        data: { status: "unfound" }
+      }),
+      prisma.item.update({
+        where: { id: match.foundItemId },
+        data: { status: "unfound" }
+      })
+    ]);
+
+    // Notify the claimant
+    await createNotification(
+      match.lostItem.userId,
+      "claim_declined",
+      "Your Claim Was Declined",
+      reason === "wrong_person" 
+        ? `Unfortunately, ${user.name} believes the ${match.foundItem.title} doesn't match your lost item.`
+        : `${user.name} has declined your claim and suggested an alternative arrangement.`,
+      { matchId, reason, message }
+    );
+
+    res.json({
+      success: true,
+      message: "Claim declined",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Decline claim error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Finder proposes a counter-offer (new return method/location)
+ */
+const proposeAlternative = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+    const { returnMethod, location, locationName, message } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const validMethods = ["in_person", "local_lost_and_found"];
+    if (!returnMethod || !validMethods.includes(returnMethod)) {
+      return res.status(400).json({ error: "Invalid return method" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: { include: { user: true } },
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    if (match.foundItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    // Update match with proposal
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: "negotiating",
+        proposedReturnMethod: returnMethod,
+        proposedLocation: location || null,
+        proposedLocationName: locationName || null,
+        declineReason: "suggest_alternative",
+        declineMessage: message || null
+      }
+    });
+
+    // Notify the claimant about the counter-proposal
+    await createNotification(
+      match.lostItem.userId,
+      "counter_proposal",
+      "New Return Proposal",
+      `${user.name} has suggested a different way to return your ${match.lostItem.title}.`,
+      { 
+        matchId, 
+        proposedReturnMethod: returnMethod,
+        proposedLocation: location,
+        proposedLocationName: locationName
+      }
+    );
+
+    res.json({
+      success: true,
+      message: "Counter-proposal sent",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Propose alternative error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Claimant accepts finder's counter-proposal
+ */
+const acceptProposal = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: true,
+        foundItem: { include: { user: true } }
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    // Only claimant (lost item owner) can accept proposal
+    if (match.lostItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    if (match.status !== "negotiating") {
+      return res.status(400).json({ error: "No proposal to accept" });
+    }
+
+    // Accept the proposal - set resolved return method
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: "scheduling",
+        resolvedReturnMethod: match.proposedReturnMethod,
+        returnLocation: match.proposedLocationName || match.proposedLocation,
+        lostUserPreference: match.proposedReturnMethod,
+        foundUserPreference: match.proposedReturnMethod
+      }
+    });
+
+    // Notify finder
+    await createNotification(
+      match.foundItem.userId,
+      "proposal_accepted",
+      "Proposal Accepted!",
+      `${user.name} has accepted your proposed return method for ${match.foundItem.title}.`,
+      { matchId }
+    );
+
+    res.json({
+      success: true,
+      message: "Proposal accepted",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Accept proposal error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Claimant rejects finder's counter-proposal
+ */
+const rejectProposal = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: true,
+        foundItem: { include: { user: true } }
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    if (match.lostItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    // Reject proposal - revert to pending for finder to reconsider
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        status: "pending",
+        proposedReturnMethod: null,
+        proposedLocation: null,
+        proposedLocationName: null,
+        declineReason: null,
+        declineMessage: null
+      }
+    });
+
+    // Notify finder
+    await createNotification(
+      match.foundItem.userId,
+      "proposal_rejected",
+      "Proposal Declined",
+      `${user.name} has declined your proposed return method. Please review the claim again.`,
+      { matchId }
+    );
+
+    res.json({
+      success: true,
+      message: "Proposal rejected",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Reject proposal error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Get matches where user is the finder (found item owner)
+ * Used for showing pending claims on My Found Items page
+ */
+const getClaimsForFinder = async (req, res) => {
+  try {
+    const user = req.user;
+
+    const matches = await prisma.match.findMany({
+      where: {
+        foundItem: { userId: user.id }
+      },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        },
+        foundItem: true
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    res.json(matches);
+  } catch (error) {
+    console.error("Get claims for finder error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 module.exports = {
   createMatch,
   getMatchesForItem,
@@ -961,5 +1449,12 @@ module.exports = {
   updatePreference,
   getMatchStatus,
   notifyReturn,
-  completeReturn
+  completeReturn,
+  getClaimDetails,
+  acceptClaim,
+  declineClaim,
+  proposeAlternative,
+  acceptProposal,
+  rejectProposal,
+  getClaimsForFinder
 };
