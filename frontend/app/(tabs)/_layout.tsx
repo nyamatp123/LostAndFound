@@ -16,8 +16,9 @@ export default function TabLayout() {
           backgroundColor: theme.colors.background,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
-          height: 60,
+          height: 70,
           paddingTop: 8,
+          paddingBottom: 10,
         },
       }}
     >
