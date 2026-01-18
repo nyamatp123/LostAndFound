@@ -1,25 +1,11 @@
 const { prisma } = require("../database/prisma");
 const { createNotification } = require("../utils/notifications");
-const { cosineSim } = require("../utils/similarity");
-
-/**
- * Calculate distance between two coordinates in km (Haversine formula)
- */
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
+const { calculateBatchMatchScores, calculateDistanceMeters } = require("../utils/matching");
 
 /**
  * Get potential matches for a lost item
  * Finds found items that match based on location, time, and description
+ * Uses the new weighted scoring algorithm with Gemini AI
  */
 const getPotentialMatches = async (req, res) => {
   try {
@@ -59,9 +45,7 @@ const getPotentialMatches = async (req, res) => {
     const foundItems = await prisma.item.findMany({
       where: {
         type: "found",
-        status: { in: ["unfound", "active"] },
-        // Found after the item was lost
-        timestamp: { gte: lostItem.timestamp }
+        status: { in: ["unfound", "active"] }
       },
       include: {
         user: {
@@ -74,97 +58,78 @@ const getPotentialMatches = async (req, res) => {
       }
     });
 
-    // Calculate scores for each found item
-    const potentialMatches = [];
-    
-    // Parse lost item location
-    let lostLocation = lostItem.location;
-    if (typeof lostLocation === 'string') {
-      try {
-        lostLocation = JSON.parse(lostLocation);
-      } catch (e) {
-        lostLocation = {};
-      }
-    }
-    const lostLat = lostLocation?.latitude;
-    const lostLon = lostLocation?.longitude;
+    // Calculate match scores using the new matching algorithm
+    const matchResults = await calculateBatchMatchScores(lostItem, foundItems);
 
-    for (const foundItem of foundItems) {
-      // Parse found item location
+    // Format results for the response
+    const potentialMatches = matchResults.map((result) => {
+      const foundItem = result.foundItem;
+      
+      // Parse location for display
       let foundLocation = foundItem.location;
-      if (typeof foundLocation === 'string') {
+      if (typeof foundLocation === "string") {
         try {
           foundLocation = JSON.parse(foundLocation);
         } catch (e) {
           foundLocation = {};
         }
       }
-      const foundLat = foundLocation?.latitude;
-      const foundLon = foundLocation?.longitude;
 
-      // Calculate distance score (0-1, higher is better)
-      let distanceScore = 0;
-      if (lostLat && lostLon && foundLat && foundLon) {
-        const distance = calculateDistance(lostLat, lostLon, foundLat, foundLon);
-        // Within 5km = high score, decreases after that
-        distanceScore = Math.max(0, 1 - (distance / 10)); // 0 at 10km+
-      } else {
-        // If no location data, give neutral score
-        distanceScore = 0.5;
-      }
-
-      // Calculate time score (0-1, items found soon after being lost score higher)
-      const timeDiff = new Date(foundItem.timestamp) - new Date(lostItem.timestamp);
-      const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
-      const timeScore = Math.max(0, 1 - (daysDiff / 30)); // Decreases over 30 days
-
-      // Calculate similarity score using text embeddings
-      let similarityScore = 0;
-      if (lostItem.textEmbedding && foundItem.textEmbedding) {
+      // Parse lost item location for distance calculation
+      let lostLocation = lostItem.location;
+      if (typeof lostLocation === "string") {
         try {
-          similarityScore = cosineSim(lostItem.textEmbedding, foundItem.textEmbedding);
+          lostLocation = JSON.parse(lostLocation);
         } catch (e) {
-          similarityScore = 0;
+          lostLocation = {};
         }
       }
 
-      // Category match bonus
-      const categoryBonus = lostItem.category === foundItem.category ? 0.2 : 0;
+      // Calculate distance in meters for display
+      let distanceMeters = null;
+      if (
+        lostLocation?.latitude &&
+        lostLocation?.longitude &&
+        foundLocation?.latitude &&
+        foundLocation?.longitude
+      ) {
+        distanceMeters = Math.round(
+          calculateDistanceMeters(
+            lostLocation.latitude,
+            lostLocation.longitude,
+            foundLocation.latitude,
+            foundLocation.longitude
+          )
+        );
+      }
 
-      // Calculate overall score
-      const score = (
-        0.3 * distanceScore +
-        0.2 * timeScore +
-        0.3 * similarityScore +
-        0.2 * categoryBonus
-      );
-
-      // Only include if score is above threshold
-      if (score > 0.1) {
-        potentialMatches.push({
-          item: {
-            id: foundItem.id.toString(),
-            title: foundItem.title,
-            name: foundItem.title, // For frontend compatibility
-            description: foundItem.description,
-            category: foundItem.category,
-            location: foundLocation?.latitude && foundLocation?.longitude
+      return {
+        item: {
+          id: foundItem.id.toString(),
+          title: foundItem.title,
+          name: foundItem.title, // For frontend compatibility
+          description: foundItem.description,
+          category: foundItem.category,
+          location:
+            foundLocation?.latitude && foundLocation?.longitude
               ? `${foundLocation.latitude.toFixed(4)}, ${foundLocation.longitude.toFixed(4)}`
               : "Unknown location",
-            timestamp: foundItem.timestamp.toISOString(),
-            imageUrl: foundItem.imageUrls?.[0] || null,
-            user: foundItem.user
-          },
-          score,
-          distanceScore,
-          timeScore,
-          similarityScore
-        });
-      }
-    }
-
-    // Sort by score descending
-    potentialMatches.sort((a, b) => b.score - a.score);
+          locationCoordinates: foundLocation?.latitude && foundLocation?.longitude
+            ? { latitude: foundLocation.latitude, longitude: foundLocation.longitude }
+            : null,
+          timestamp: foundItem.timestamp.toISOString(),
+          imageUrl: foundItem.imageUrls?.[0] || null,
+          user: foundItem.user
+        },
+        score: result.finalScore, // Final weighted score (0-100%)
+        breakdown: result.breakdown, // Individual scores (0-100% each)
+        distanceMeters, // Distance in meters for display
+        // Legacy fields for backwards compatibility (0-1 range)
+        distanceScore: result.breakdown.locationScore / 100,
+        timeScore: result.breakdown.timeScore / 100,
+        similarityScore: result.breakdown.textSimilarityScore / 100
+      };
+    });
 
     res.json(potentialMatches);
   } catch (error) {
