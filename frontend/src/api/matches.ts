@@ -32,10 +32,23 @@ export interface GetMatchesParams {
   status?: string;
 }
 
-export interface MatchStatusResponse extends Match {
+export interface MatchStatusResponse {
+  id: number;
+  status: string;
+  lostUserPreference?: string;
+  foundUserPreference?: string;
+  resolvedReturnMethod?: string;
+  returnLocation?: string;
+  notifiedAt?: string;
   userRole: 'lost' | 'found';
   bothSubmitted: boolean;
   isResolved: boolean;
+  navigationTarget: 'preference' | 'waiting' | 'contact_info' | 'lost_and_found' | null;
+  otherPartyContact?: {
+    name: string;
+    email: string;
+    phone?: string;
+  } | null;
 }
 
 export interface ClaimDetailsResponse {
@@ -55,12 +68,13 @@ export interface ClaimDetailsResponse {
     createdAt: string;
     updatedAt: string;
   };
+  // claimant is null until resolved with in_person method
   claimant: {
     id: number;
     name: string;
     email: string;
     phone?: string;
-  };
+  } | null;
   lostItem: {
     id: number;
     title: string;
@@ -76,6 +90,22 @@ export interface ClaimDetailsResponse {
     description: string;
   };
   finderState: string;
+}
+
+export interface LostItemMatchResponse {
+  matchId: number;
+  status: string;
+  lostUserPreference?: string;
+  foundUserPreference?: string;
+  resolvedReturnMethod?: string;
+  returnLocation?: string;
+  notifiedAt?: string;
+  navigationTarget: 'preference' | 'waiting' | 'contact_info' | 'lost_and_found';
+  finderContact?: {
+    name: string;
+    email: string;
+    phone?: string;
+  } | null;
 }
 
 export const matchesApi = {
@@ -119,8 +149,8 @@ export const matchesApi = {
     return response.data;
   },
 
-  acceptClaim: async (id: string): Promise<{ success: boolean; message: string; match: Match }> => {
-    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/accept`);
+  acceptClaim: async (id: string): Promise<{ success: boolean; message: string; match: Match; alreadyProcessed?: boolean }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match; alreadyProcessed?: boolean }>(`/matches/${id}/accept`);
     return response.data;
   },
 
@@ -161,6 +191,11 @@ export const matchesApi = {
 
   getPotentialMatches: async (lostItemId: string): Promise<PotentialMatch[]> => {
     const response = await apiClient.get<PotentialMatch[]>(`/matches/potential/${lostItemId}`);
+    return response.data;
+  },
+
+  getMatchForLostItem: async (itemId: string): Promise<LostItemMatchResponse> => {
+    const response = await apiClient.get<LostItemMatchResponse>(`/matches/lost-item/${itemId}`);
     return response.data;
   },
 };

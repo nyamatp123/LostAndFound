@@ -24,10 +24,10 @@ export default function SchedulingWaitingScreen() {
           pathname: '/scheduling/lost-and-found' as any,
           params: { matchId, type: matchStatus.userRole }
         });
-      } else {
-        // In-person meeting
+      } else if (matchStatus.resolvedReturnMethod === 'in_person') {
+        // Navigate to contact info screen (no scheduling in app)
         router.replace({
-          pathname: '/scheduling/in-person' as any,
+          pathname: '/scheduling/contact-info' as any,
           params: { matchId, type: matchStatus.userRole }
         });
       }

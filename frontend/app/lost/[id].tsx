@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../src/theme';
@@ -7,6 +7,7 @@ import { Button } from '../../src/components/common/Button';
 import { Card } from '../../src/components/common/Card';
 import { LiquidPill } from '../../src/components/common/LiquidPill';
 import { useItem, useItems } from '../../src/hooks/useItems';
+import { useMatchForLostItem } from '../../src/hooks/useMatches';
 import { Item } from '../../src/types';
 
 // Helper to get image URL from item
@@ -53,6 +54,33 @@ export default function LostItemDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { item, isLoading } = useItem(id);
   const { deleteItem, isDeleting } = useItems('lost');
+  
+  // Get match info if item is matched
+  const { matchInfo, isLoading: isLoadingMatch } = useMatchForLostItem(
+    item?.status === 'matched' ? id : undefined
+  );
+
+  const handleScheduleReturn = () => {
+    if (!matchInfo) return;
+    
+    const { matchId, navigationTarget } = matchInfo;
+    
+    switch (navigationTarget) {
+      case 'contact_info':
+        router.push(`/scheduling/contact-info?matchId=${matchId}&type=lost`);
+        break;
+      case 'lost_and_found':
+        router.push(`/scheduling/lost-and-found?matchId=${matchId}&type=lost`);
+        break;
+      case 'waiting':
+        router.push(`/scheduling/waiting?matchId=${matchId}&type=lost`);
+        break;
+      case 'preference':
+      default:
+        router.push(`/scheduling/preference?matchId=${matchId}&type=lost`);
+        break;
+    }
+  };
 
   const handleDelete = () => {
     Alert.alert('Delete Item', 'Are you sure you want to delete this item?', [
@@ -170,10 +198,20 @@ export default function LostItemDetail() {
       {/* Footer */}
       {item.status === 'matched' && (
         <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-          <Button
-            title="Schedule Return"
-            onPress={() => router.push(`/scheduling/preference?itemId=${id}&type=lost` as any)}
-          />
+          {isLoadingMatch ? (
+            <ActivityIndicator color={theme.colors.primary} />
+          ) : matchInfo ? (
+            <Button
+              title={matchInfo.navigationTarget === 'contact_info' ? "View Contact Info" : 
+                     matchInfo.navigationTarget === 'lost_and_found' ? "View Pickup Location" :
+                     matchInfo.navigationTarget === 'waiting' ? "Check Status" : "Schedule Return"}
+              onPress={handleScheduleReturn}
+            />
+          ) : (
+            <Text style={[theme.typography.body, { color: theme.colors.textSecondary, textAlign: 'center' }]}>
+              Waiting for finder to accept your claim...
+            </Text>
+          )}
         </View>
       )}
     </View>

@@ -167,7 +167,7 @@ export default function FoundItemDetail() {
         </Card>
       </ScrollView>
 
-      {/* Footer */}
+      {/* Footer - only show for matched items, not returned */}
       {item.status === 'matched' && (
         <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
           <Button

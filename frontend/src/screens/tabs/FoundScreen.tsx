@@ -14,13 +14,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme';
 import { Card } from '../../components/common/Card';
 import { LiquidPill } from '../../components/common/LiquidPill';
-import { useItems } from '../../hooks/useItems';
-import { useMatches, useClaimsForFinder } from '../../hooks/useMatches';
-import { Item } from '../../types';
+import { useFoundItemsWithClaimStatus } from '../../hooks/useItems';
+import { ItemWithClaimStatus, ClaimStatus } from '../../api/items';
 
 // Helper to get image URL from item
-const getItemImage = (item: Item): string | undefined => {
-  if (item.imageUrl) return item.imageUrl;
+const getItemImage = (item: ItemWithClaimStatus): string | undefined => {
+  if ((item as any).imageUrl) return (item as any).imageUrl;
   if (item.imageUrls && item.imageUrls.length > 0) {
     const firstImage = item.imageUrls[0];
     // Check if it's already a data URI or URL
@@ -33,86 +32,125 @@ const getItemImage = (item: Item): string | undefined => {
   return undefined;
 };
 
+// Get display text and color for claim status
+const getClaimStatusDisplay = (status: ClaimStatus): { text: string; color: string; icon: string } => {
+  switch (status) {
+    case 'unclaimed':
+      return { text: 'No Claims', color: '#6b7280', icon: 'time-outline' };
+    case 'claim_pending':
+      return { text: 'Claim Pending', color: '#f59e0b', icon: 'hand-left' };
+    case 'accepted':
+      return { text: 'Accepted', color: '#10b981', icon: 'checkmark-circle' };
+    case 'negotiating':
+      return { text: 'Negotiating', color: '#8b5cf6', icon: 'chatbubbles-outline' };
+    case 'awaiting_pickup':
+      return { text: 'Awaiting Pickup', color: '#3b82f6', icon: 'location-outline' };
+    case 'returned':
+      return { text: 'Returned', color: '#059669', icon: 'checkmark-done-circle' };
+    case 'declined':
+      return { text: 'Declined', color: '#ef4444', icon: 'close-circle' };
+    default:
+      return { text: 'Unknown', color: '#6b7280', icon: 'help-circle-outline' };
+  }
+};
+
 export default function FoundScreen() {
   const theme = useAppTheme();
-  const { items, isLoading, refetch } = useItems('found');
-  const { matches } = useMatches();
-  const { data: claims, refetch: refetchClaims } = useClaimsForFinder();
+  const { items, isLoading, refetch } = useFoundItemsWithClaimStatus(true); // Enable polling
 
-  // Refresh claims periodically to catch new claims
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetchClaims();
-    }, 10000); // Check every 10 seconds
-    return () => clearInterval(interval);
-  }, [refetchClaims]);
+  // Categorize items by claim status
+  const unclaimedItems = items.filter((item) => 
+    item.claimStatus === 'unclaimed' || item.claimStatus === 'declined'
+  );
+  const pendingItems = items.filter((item) => 
+    item.claimStatus === 'claim_pending' || item.claimStatus === 'negotiating'
+  );
+  const activeItems = items.filter((item) => 
+    item.claimStatus === 'accepted' || item.claimStatus === 'awaiting_pickup'
+  );
+  const returnedItems = items.filter((item) => item.claimStatus === 'returned');
 
-  // Create a map of found item IDs to their pending claims
-  const pendingClaimsMap = React.useMemo(() => {
-    const map = new Map<string, any>();
-    if (claims) {
-      claims.forEach((claim: any) => {
-        // Only show badge for pending claims
-        if (claim.status === 'pending') {
-          map.set(String(claim.foundItemId), claim);
+  const handleItemPress = (item: ItemWithClaimStatus) => {
+    if (item.activeClaim) {
+      // Has an active claim - navigate based on status
+      const matchId = item.activeClaim.matchId;
+      const resolvedMethod = item.activeClaim.resolvedReturnMethod;
+      
+      if (item.claimStatus === 'claim_pending') {
+        // Go to claim review to accept/decline
+        router.push(`/scheduling/claim-review?matchId=${matchId}`);
+      } else if (item.claimStatus === 'negotiating') {
+        // Awaiting claimant response, show status
+        router.push(`/scheduling/claim-review?matchId=${matchId}`);
+      } else if (item.claimStatus === 'accepted' || item.claimStatus === 'awaiting_pickup') {
+        // Check if method is already resolved
+        if (resolvedMethod === 'in_person') {
+          // Go to contact info screen
+          router.push(`/scheduling/contact-info?matchId=${matchId}&type=found`);
+        } else if (resolvedMethod === 'local_lost_and_found') {
+          // Go to L&F screen
+          router.push(`/scheduling/lost-and-found?matchId=${matchId}&type=found`);
+        } else {
+          // Not resolved yet - go to preference screen
+          router.push(`/scheduling/preference?matchId=${matchId}&type=found`);
         }
-      });
-    }
-    return map;
-  }, [claims]);
-
-  // Categorize items for found tab
-  const foundItems = items.filter((item: Item) => item.status === 'unfound' || item.status === 'found');
-  const matchedItems = items.filter((item: Item) => item.status === 'matched');
-  const returnedItems = items.filter((item: Item) => item.status === 'returned');
-
-  const handleItemPress = (item: Item) => {
-    const pendingClaim = pendingClaimsMap.get(String(item.id));
-    
-    if (pendingClaim) {
-      // Has pending claim - go to claim review screen
-      router.push(`/scheduling/claim-review?matchId=${pendingClaim.id}`);
-    } else if (item.status === 'matched') {
-      // Already matched - find the match and go to scheduling
-      const match = matches?.find((m: any) => String(m.foundItemId) === String(item.id));
-      if (match) {
-        router.push(`/scheduling/preference?matchId=${match.id}&type=found`);
-      } else {
-        Alert.alert('Match Not Found', 'Unable to find match details. Please try again.');
+      } else if (item.claimStatus === 'returned') {
+        // Item is returned - just show item details, no contact info needed
+        router.push(`/found/${item.id}`);
+      } else if (item.claimStatus === 'declined') {
+        // Declined - just show item details
+        router.push(`/found/${item.id}`);
       }
     } else {
-      // Regular item - go to details
+      // No claim - go to item details
       router.push(`/found/${item.id}`);
     }
   };
 
-  const renderItemCard = (item: Item) => {
+  const renderClaimStatusBadge = (item: ItemWithClaimStatus) => {
+    const statusInfo = getClaimStatusDisplay(item.claimStatus);
+    
+    return (
+      <View style={[styles.statusBadge, { backgroundColor: statusInfo.color + '20' }]}>
+        <Ionicons name={statusInfo.icon as any} size={14} color={statusInfo.color} />
+        <Text style={[styles.statusText, { color: statusInfo.color }]}>
+          {statusInfo.text}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderItemCard = (item: ItemWithClaimStatus) => {
     const imageUri = getItemImage(item);
     const itemName = (item as any).name || (item as any).title || 'Unnamed Item';
-    const hasPendingClaim = pendingClaimsMap.has(String(item.id));
+    const statusInfo = getClaimStatusDisplay(item.claimStatus);
+    const hasPendingAction = item.claimStatus === 'claim_pending';
     
     return (
       <Card
         key={item.id}
         onPress={() => handleItemPress(item)}
-        style={styles.itemCard}
+        style={[
+          styles.itemCard,
+          hasPendingAction && { borderLeftWidth: 3, borderLeftColor: statusInfo.color }
+        ]}
       >
         <View style={styles.cardContent}>
           {imageUri ? (
             <View style={styles.imageContainer}>
               <Image source={{ uri: imageUri }} style={styles.itemImage} />
-              {hasPendingClaim && (
-                <View style={[styles.claimBadge, { backgroundColor: theme.colors.warning }]}>
-                  <Ionicons name="hand-left" size={12} color="#fff" />
+              {hasPendingAction && (
+                <View style={[styles.claimBadge, { backgroundColor: statusInfo.color }]}>
+                  <Ionicons name={statusInfo.icon as any} size={12} color="#fff" />
                 </View>
               )}
             </View>
           ) : (
             <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.surface }]}>
               <Ionicons name="image-outline" size={24} color={theme.colors.textTertiary} />
-              {hasPendingClaim && (
-                <View style={[styles.claimBadge, { backgroundColor: theme.colors.warning }]}>
-                  <Ionicons name="hand-left" size={12} color="#fff" />
+              {hasPendingAction && (
+                <View style={[styles.claimBadge, { backgroundColor: statusInfo.color }]}>
+                  <Ionicons name={statusInfo.icon as any} size={12} color="#fff" />
                 </View>
               )}
             </View>
@@ -121,15 +159,17 @@ export default function FoundScreen() {
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]} numberOfLines={1}>
               {itemName}
             </Text>
-            {hasPendingClaim && (
-              <View style={[styles.claimLabel, { backgroundColor: theme.colors.warning + '20' }]}>
-                <Text style={[theme.typography.small, { color: theme.colors.warning, fontWeight: '600' }]}>
-                  Claim Request
-                </Text>
+            {renderClaimStatusBadge(item)}
+          </View>
+          <View style={styles.actionHint}>
+            {hasPendingAction ? (
+              <View style={[styles.actionButton, { backgroundColor: statusInfo.color }]}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>REVIEW</Text>
               </View>
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
             )}
           </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
         </View>
       </Card>
     );
@@ -137,20 +177,20 @@ export default function FoundScreen() {
 
   const renderCategory = (
     title: string,
-    categoryItems: Item[],
-    variant: 'unfound' | 'found' | 'matched' | 'returned'
+    categoryItems: ItemWithClaimStatus[],
+    variant: 'unfound' | 'found' | 'matched' | 'returned',
+    showBadge = false
   ) => {
-    // Count pending claims in this category
-    const pendingClaimCount = categoryItems.filter(item => pendingClaimsMap.has(String(item.id))).length;
+    if (categoryItems.length === 0) return null;
     
     return (
       <View style={styles.category}>
         <View style={styles.categoryHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <LiquidPill label={title} variant={variant} />
-            {pendingClaimCount > 0 && (
+            {showBadge && categoryItems.length > 0 && (
               <View style={[styles.categoryBadge, { backgroundColor: theme.colors.warning }]}>
-                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>{pendingClaimCount}</Text>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>{categoryItems.length}</Text>
               </View>
             )}
           </View>
@@ -158,20 +198,13 @@ export default function FoundScreen() {
             {categoryItems.length} {categoryItems.length === 1 ? 'item' : 'items'}
           </Text>
         </View>
-        {categoryItems.length > 0 ? (
-          categoryItems.map(renderItemCard)
-        ) : (
-          <Text style={[theme.typography.body, { color: theme.colors.textTertiary, marginTop: 8 }]}>
-            No items in this category
-          </Text>
-        )}
+        {categoryItems.map(renderItemCard)}
       </View>
     );
   };
 
   const handleRefresh = () => {
     refetch();
-    refetchClaims();
   };
 
   return (
@@ -195,9 +228,29 @@ export default function FoundScreen() {
           <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />
         }
       >
-        {renderCategory('Found', foundItems, 'unfound')}
-        {renderCategory('Matched', matchedItems, 'matched')}
+        {/* Pending claims first - most important */}
+        {renderCategory('Needs Action', pendingItems, 'matched', true)}
+        
+        {/* Active claims in progress */}
+        {renderCategory('In Progress', activeItems, 'found')}
+        
+        {/* Unclaimed items */}
+        {renderCategory('No Claims Yet', unclaimedItems, 'unfound')}
+        
+        {/* Returned items */}
         {renderCategory('Returned', returnedItems, 'returned')}
+        
+        {items.length === 0 && !isLoading && (
+          <View style={styles.emptyState}>
+            <Ionicons name="cube-outline" size={64} color={theme.colors.textTertiary} />
+            <Text style={[theme.typography.h3, { color: theme.colors.text, marginTop: 16 }]}>
+              No Found Items
+            </Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8 }]}>
+              Report items you've found to help reunite them with their owners
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -284,11 +337,32 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
-  claimLabel: {
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
     marginTop: 4,
+    gap: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  actionHint: {
+    marginLeft: 8,
+  },
+  actionButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 64,
   },
 });

@@ -5,7 +5,9 @@ const {
   getUserItems,
   getItemById,
   updateItemStatus,
-  deleteItem
+  deleteItem,
+  getFoundItemsWithClaimStatus,
+  updateClaimDetails
 } = require("../controllers/itemsController");
 
 const router = Router();
@@ -19,6 +21,9 @@ router.post("/", createItem);
 // GET /api/items - Get user's items
 router.get("/", getUserItems);
 
+// GET /api/items/found-with-status - Get found items with claim status (for finder dashboard)
+router.get("/found-with-status", getFoundItemsWithClaimStatus);
+
 // GET /api/items/:id - Get single item
 router.get("/:id", getItemById);
 
@@ -27,5 +32,8 @@ router.patch("/:id/status", updateItemStatus);
 
 // DELETE /api/items/:id - Delete an item
 router.delete("/:id", deleteItem);
+
+// PUT /api/items/claims/:matchId - Update claim details (finder action)
+router.put("/claims/:matchId", updateClaimDetails);
 
 module.exports = router;
