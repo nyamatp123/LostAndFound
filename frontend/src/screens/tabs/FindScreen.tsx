@@ -103,8 +103,8 @@ export default function FindScreen() {
       {/* Match Score Badge */}
       <View style={styles.scoreBadge}>
         <LiquidPill
-          label={`${Math.round(match.score * 100)}% Match`}
-          variant={match.score > 0.7 ? 'returned' : match.score > 0.4 ? 'found' : 'unfound'}
+          label={`${Math.round(match.score)}% Match`}
+          variant={match.score > 70 ? 'returned' : match.score > 40 ? 'found' : 'unfound'}
         />
       </View>
 

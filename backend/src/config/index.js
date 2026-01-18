@@ -6,5 +6,6 @@ module.exports = {
   JWT_SECRET: process.env.JWT_SECRET || "change_this_in_production",
   ACCESS_TOKEN_EXPIRE_MINUTES: 60 * 24 * 7, // 1 week in minutes
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || null,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || null,
   NODE_ENV: process.env.NODE_ENV || "development"
 };
