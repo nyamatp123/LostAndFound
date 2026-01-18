@@ -1,17 +1,28 @@
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+const getGeminiClient = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set");
+  }
+
+  return new GoogleGenerativeAI(apiKey);
+};
+
 /**
- * Generate text embedding from description
- * NOTE: This is a placeholder. In production, use OpenAI API or similar
+ * Generate text embedding from description using Gemini embeddings.
  */
 const generateTextEmbedding = async (text) => {
-  // Placeholder: returns random 384-dimensional vector
-  // In production, replace with actual API call:
-  // const response = await openai.embeddings.create({
-  //   model: "text-embedding-ada-002",
-  //   input: text,
-  // });
-  // return response.data[0].embedding;
-  
-  return Array(384).fill(0).map(() => Math.random());
+  const input = `${text || ""}`.trim();
+  if (!input) {
+    throw new Error("Text is required to generate an embedding");
+  }
+
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+  const result = await model.embedContent(input);
+
+  return result.embedding.values;
 };
 
 /**

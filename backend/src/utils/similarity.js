@@ -2,8 +2,12 @@
  * Calculate cosine similarity between two vectors
  */
 const cosineSim = (vec1, vec2) => {
+  if (!Array.isArray(vec1) || !Array.isArray(vec2)) {
+    return 0;
+  }
+
   if (vec1.length !== vec2.length) {
-    throw new Error("Vectors must have same length");
+    return 0;
   }
 
   let dotProduct = 0;
