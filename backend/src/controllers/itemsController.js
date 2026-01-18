@@ -343,10 +343,181 @@ const deleteItem = async (req, res) => {
   }
 };
 
+/**
+ * Get all found items for current user with claim status
+ * Returns items with their active claim information for the finder dashboard
+ */
+const getFoundItemsWithClaimStatus = async (req, res) => {
+  try {
+    const user = req.user;
+
+    // Get all found items for this user
+    const foundItems = await prisma.item.findMany({
+      where: {
+        userId: user.id,
+        type: "found"
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    // Get all matches for these found items
+    const itemIds = foundItems.map(item => item.id);
+    const matches = await prisma.match.findMany({
+      where: {
+        foundItemId: { in: itemIds }
+      },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    // Create a map of item ID to its claim info
+    const claimMap = new Map();
+    for (const match of matches) {
+      const itemId = match.foundItemId;
+      // If no existing claim or this is a more recent/active one
+      if (!claimMap.has(itemId)) {
+        claimMap.set(itemId, match);
+      } else {
+        // Prefer pending or active claims over completed/declined
+        const existing = claimMap.get(itemId);
+        const activeStatuses = ["pending", "accepted", "negotiating", "scheduling", "awaiting_pickup"];
+        if (activeStatuses.includes(match.status) && !activeStatuses.includes(existing.status)) {
+          claimMap.set(itemId, match);
+        }
+      }
+    }
+
+    // Map claim status to display status
+    const getClaimDisplayStatus = (match) => {
+      if (!match) return "unclaimed";
+      switch (match.status) {
+        case "pending": return "claim_pending";
+        case "accepted": 
+        case "scheduling": return "accepted";
+        case "negotiating": return "negotiating";
+        case "awaiting_pickup": return "awaiting_pickup";
+        case "completed": return "returned";
+        case "declined": return "declined";
+        default: return "unclaimed";
+      }
+    };
+
+    // Combine items with their claim status
+    const itemsWithStatus = foundItems.map(item => {
+      const claim = claimMap.get(item.id);
+      return {
+        ...item,
+        claimStatus: getClaimDisplayStatus(claim),
+        activeClaim: claim ? {
+          matchId: claim.id,
+          status: claim.status,
+          claimantName: claim.lostItem?.user?.name || "Unknown",
+          claimantId: claim.lostItem?.user?.id,
+          resolvedReturnMethod: claim.resolvedReturnMethod,
+          notifiedAt: claim.notifiedAt,
+          createdAt: claim.createdAt,
+          updatedAt: claim.updatedAt
+        } : null
+      };
+    });
+
+    res.json(itemsWithStatus);
+  } catch (error) {
+    console.error("Get found items with claim status error:", error);
+    res.status(500).json({
+      error: "Internal server error while fetching items"
+    });
+  }
+};
+
+/**
+ * Update claim/match details (location, method) - finder action
+ * Allows finder to update meetup details if item not yet returned
+ */
+const updateClaimDetails = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+    const { returnLocation, returnLocationName, returnMethod } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({ error: "Invalid match ID" });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: { include: { user: true } },
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    // Only finder can update claim details
+    if (match.foundItem.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized to update this claim" });
+    }
+
+    // Cannot update if already completed
+    if (match.status === "completed") {
+      return res.status(400).json({ error: "Cannot update a completed claim" });
+    }
+
+    const updateData = {};
+    
+    if (returnLocation) {
+      updateData.returnLocation = returnLocation;
+    }
+    
+    if (returnLocationName) {
+      updateData.proposedLocationName = returnLocationName;
+    }
+    
+    if (returnMethod && ["in_person", "local_lost_and_found"].includes(returnMethod)) {
+      updateData.resolvedReturnMethod = returnMethod;
+      updateData.foundUserPreference = returnMethod;
+    }
+
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: updateData
+    });
+
+    // Notify the claimant about the update
+    await createNotification(
+      match.lostItem.userId,
+      "claim_updated",
+      "Return Details Updated",
+      `${user.name} has updated the return details for ${match.foundItem.title}.`,
+      { matchId }
+    );
+
+    res.json({
+      success: true,
+      message: "Claim details updated successfully",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Update claim details error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 module.exports = {
   createItem,
   getUserItems,
   getItemById,
   updateItemStatus,
-  deleteItem
+  deleteItem,
+  getFoundItemsWithClaimStatus,
+  updateClaimDetails
 };

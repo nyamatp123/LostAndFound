@@ -16,7 +16,8 @@ const {
   proposeAlternative,
   acceptProposal,
   rejectProposal,
-  getClaimsForFinder
+  getClaimsForFinder,
+  getMatchForLostItem
 } = require("../controllers/matchesController");
 
 const router = Router();
@@ -29,6 +30,9 @@ router.post("/", createMatch);
 
 // GET /api/matches/claims - Get all claims for finder (items I found that were claimed)
 router.get("/claims", getClaimsForFinder);
+
+// GET /api/matches/lost-item/:itemId - Get the active match for a lost item
+router.get("/lost-item/:itemId", getMatchForLostItem);
 
 // GET /api/matches/potential/:lostItemId - Get potential matches for a lost item
 router.get("/potential/:lostItemId", getPotentialMatches);

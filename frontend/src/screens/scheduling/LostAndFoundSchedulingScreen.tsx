@@ -19,11 +19,12 @@ export default function LostAndFoundSchedulingScreen() {
   const { matchId, type } = useLocalSearchParams<{ matchId: string; type: string }>();
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   
-  const { matchStatus, isLoading: isLoadingStatus } = useMatchStatus(matchId);
-  const { notifyReturnAsync, isNotifying, completeReturnAsync, isCompleting } = useMatches();
-
   const isFinder = type === 'found';
   const isOwner = type === 'lost';
+  
+  // Enable polling for owner to detect when finder drops off
+  const { matchStatus, isLoading: isLoadingStatus } = useMatchStatus(matchId, isOwner);
+  const { notifyReturnAsync, isNotifying, completeReturnAsync, isCompleting } = useMatches();
 
   // If owner and finder already selected a location, show that
   useEffect(() => {
@@ -51,12 +52,13 @@ export default function LostAndFoundSchedulingScreen() {
       });
       
       Alert.alert(
-        'Owner Notified!',
-        `The owner has been notified that you'll drop off the item at ${location?.name}. Thank you for helping!`,
+        'Drop-off Confirmed!',
+        `The owner has been notified that you dropped off the item at ${location?.name}. Thank you for helping reunite someone with their item!`,
         [{ text: 'Done', onPress: () => router.replace('/(tabs)/found' as any) }]
       );
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to notify owner');
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to notify owner';
+      Alert.alert('Error', errorMessage);
     }
   };
 
@@ -80,7 +82,8 @@ export default function LostAndFoundSchedulingScreen() {
                 [{ text: 'Done', onPress: () => router.replace('/(tabs)/lost' as any) }]
               );
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to complete return');
+              const errorMessage = error.response?.data?.error || error.message || 'Failed to complete return';
+              Alert.alert('Error', errorMessage);
             }
           }
         }
@@ -175,6 +178,12 @@ export default function LostAndFoundSchedulingScreen() {
             onPress={handleConfirmPickup}
             disabled={isCompleting}
           />
+          <TouchableOpacity 
+            style={{ marginTop: 12, alignItems: 'center' }}
+            onPress={() => router.replace('/(tabs)/lost' as any)}
+          >
+            <Text style={[theme.typography.body, { color: theme.colors.primary }]}>I'll pick it up later</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -199,13 +208,13 @@ export default function LostAndFoundSchedulingScreen() {
           </View>
 
           <Text style={[theme.typography.h2, { color: theme.colors.text, textAlign: 'center', marginTop: 24 }]}>
-            Waiting for the finder
+            Waiting for drop-off
           </Text>
 
           <Text style={[theme.typography.body, { color: theme.colors.textSecondary, textAlign: 'center', marginTop: 12, paddingHorizontal: 24, lineHeight: 24 }]}>
-            The finder will drop off your item at a Lost & Found location and notify you.
+            The finder is dropping off your item at a Lost & Found location.
             {'\n\n'}
-            We'll send you a notification as soon as your item is ready for pickup!
+            We'll notify you as soon as it's ready for pickup!
           </Text>
         </View>
 
@@ -234,10 +243,10 @@ export default function LostAndFoundSchedulingScreen() {
 
       <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
         <Text style={[theme.typography.h2, { color: theme.colors.text }]}>
-          Where will you drop off?
+          Drop off the item
         </Text>
         <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginTop: 8 }]}>
-          Choose a Lost & Found location to drop off the item
+          Select where you will drop off the item, then confirm once you've dropped it off
         </Text>
 
         {/* Location Options */}
@@ -289,10 +298,10 @@ export default function LostAndFoundSchedulingScreen() {
             </Text>
           </View>
           <Text style={[theme.typography.small, { color: theme.colors.textSecondary, lineHeight: 20 }]}>
-            1. Drop off the item at your selected location{'\n'}
-            2. Tap "Notify Owner" to let them know{'\n'}
-            3. The owner will receive a notification to pick it up{'\n'}
-            4. Thank you for helping reunite someone with their item!
+            1. Select a Lost & Found location below{'\n'}
+            2. Drop off the item at that location{'\n'}
+            3. Tap "I've Dropped It Off" to notify the owner{'\n'}
+            4. The owner will pick it up from there
           </Text>
         </Card>
       </ScrollView>
@@ -300,10 +309,13 @@ export default function LostAndFoundSchedulingScreen() {
       {/* Footer */}
       <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
         <Button 
-          title={isNotifying ? "Notifying..." : "Notify Owner & Confirm Drop-off"} 
+          title={isNotifying ? "Confirming..." : "I've Dropped It Off"} 
           onPress={handleNotifyDropOff} 
           disabled={!selectedLocation || isNotifying} 
         />
+        <Text style={[theme.typography.caption, { color: theme.colors.textTertiary, textAlign: 'center', marginTop: 8 }]}>
+          Only tap this after you've physically dropped off the item
+        </Text>
       </View>
     </View>
   );

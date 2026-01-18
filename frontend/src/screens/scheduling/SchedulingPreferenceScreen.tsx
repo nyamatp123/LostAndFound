@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { useMatches } from '../../hooks/useMatches';
+import { useMatches, useMatchStatus } from '../../hooks/useMatches';
 import { ReturnMethod } from '../../types';
 
 type PreferenceOption = 'in_person' | 'local_lost_and_found' | 'no_preference';
@@ -15,6 +15,37 @@ export default function SchedulingPreferenceScreen() {
   const { matchId, type } = useLocalSearchParams<{ matchId: string; type: string }>();
   const [selectedMethod, setSelectedMethod] = useState<PreferenceOption | null>(null);
   const { updatePreferenceAsync, isUpdatingPreference } = useMatches();
+  const { data: matchStatus, isLoading: isLoadingStatus } = useMatchStatus(matchId || '');
+
+  // Redirect based on current status when component loads
+  useEffect(() => {
+    if (!matchStatus || isLoadingStatus) return;
+
+    // If the return method is already resolved, redirect to appropriate screen
+    if (matchStatus.resolvedReturnMethod) {
+      if (matchStatus.resolvedReturnMethod === 'in_person') {
+        router.replace({
+          pathname: '/scheduling/in-person' as any,
+          params: { matchId, type }
+        });
+      } else if (matchStatus.resolvedReturnMethod === 'local_lost_and_found') {
+        router.replace({
+          pathname: '/scheduling/lost-and-found' as any,
+          params: { matchId, type }
+        });
+      }
+      return;
+    }
+
+    // If user has already submitted preference, go to waiting
+    const userPreference = type === 'lost' ? matchStatus.ownerPreference : matchStatus.finderPreference;
+    if (userPreference) {
+      router.replace({
+        pathname: '/scheduling/waiting' as any,
+        params: { matchId, type }
+      });
+    }
+  }, [matchStatus, isLoadingStatus, matchId, type]);
 
   const handleContinue = async () => {
     if (!selectedMethod || !matchId) return;
@@ -33,7 +64,9 @@ export default function SchedulingPreferenceScreen() {
         params: { matchId, type }
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to save preference');
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to save preference';
+      const details = error.response?.data?.details ? `\n\nDetails: ${error.response.data.details}` : '';
+      Alert.alert('Error', errorMessage + details);
     }
   };
 
@@ -71,6 +104,18 @@ export default function SchedulingPreferenceScreen() {
     </TouchableOpacity>
   );
 
+  // Show loading while checking status to determine if we need to redirect
+  if (isLoadingStatus) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={[theme.typography.bodyMedium, { color: theme.colors.textSecondary, marginTop: 16 }]}>
+          Loading...
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
@@ -91,7 +136,7 @@ export default function SchedulingPreferenceScreen() {
           <MethodOption
             method="in_person"
             title="Meet In-Person"
-            description="Schedule a time and place to meet the other party"
+            description="Exchange contact info to coordinate a meetup"
             icon="people-outline"
           />
 

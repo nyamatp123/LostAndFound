@@ -16,6 +16,7 @@ import { useAppTheme } from '../../theme';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { useClaimDetails, useAcceptClaim, useDeclineClaim, useProposeAlternative } from '../../hooks/useMatches';
+import { useFoundItemsWithClaimStatus } from '../../hooks/useItems';
 
 type DeclineReason = 'wrong_person' | 'suggest_alternative';
 type ProposedMethod = 'in_person' | 'local_lost_and_found';
@@ -74,6 +75,11 @@ export default function ClaimReviewScreen() {
   const [declineMessage, setDeclineMessage] = useState('');
   const [proposedMethod, setProposedMethod] = useState<ProposedMethod>('in_person');
   const [proposedLocationName, setProposedLocationName] = useState('');
+  const [showEditLocation, setShowEditLocation] = useState(false);
+  const [editLocationValue, setEditLocationValue] = useState('');
+
+  // Hook for updating claim details
+  const { updateClaimDetailsAsync, isUpdatingClaimDetails } = useFoundItemsWithClaimStatus();
 
   // Auto-refresh to check for state changes
   useEffect(() => {
@@ -85,12 +91,20 @@ export default function ClaimReviewScreen() {
 
   const handleAccept = async () => {
     try {
-      await acceptClaim(matchId!);
-      Alert.alert('Success', 'Claim accepted! Please select your return preference.', [
-        { text: 'Continue', onPress: () => router.push(`/scheduling/preference?matchId=${matchId}&type=found`) }
-      ]);
+      const result = await acceptClaim(matchId!);
+      // Check if claim was already processed
+      if (result.alreadyProcessed) {
+        Alert.alert('Claim Status', `This claim has already been ${result.match.status}. Continuing to the next step.`, [
+          { text: 'Continue', onPress: () => router.push(`/scheduling/preference?matchId=${matchId}&type=found`) }
+        ]);
+      } else {
+        Alert.alert('Success', 'Claim accepted! Please select your return preference.', [
+          { text: 'Continue', onPress: () => router.push(`/scheduling/preference?matchId=${matchId}&type=found`) }
+        ]);
+      }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to accept claim');
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to accept claim';
+      Alert.alert('Error', errorMessage);
     }
   };
 
@@ -101,7 +115,8 @@ export default function ClaimReviewScreen() {
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to decline claim');
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to decline claim';
+      Alert.alert('Error', errorMessage);
     }
   };
 
@@ -121,7 +136,8 @@ export default function ClaimReviewScreen() {
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send proposal');
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to send proposal';
+      Alert.alert('Error', errorMessage);
     }
   };
 
@@ -165,7 +181,7 @@ export default function ClaimReviewScreen() {
         <View style={[styles.centered, { flex: 1 }]}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={[theme.typography.h3, { color: theme.colors.text, marginTop: 24, textAlign: 'center' }]}>
-            Waiting for {claimant.name}'s Response
+            Waiting for Claimant's Response
           </Text>
           <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginTop: 12, textAlign: 'center', paddingHorizontal: 32 }]}>
             You've sent a counter-proposal. We'll notify you when they respond.
@@ -200,9 +216,221 @@ export default function ClaimReviewScreen() {
   }
 
   if (finderState !== 'pending_review') {
-    // Redirect to appropriate scheduling screen
-    router.replace(`/scheduling/preference?matchId=${matchId}&type=found`);
-    return null;
+    // Show the current state with options to view details or continue scheduling
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={[theme.typography.h3, { color: theme.colors.text }]}>Claim Status</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        
+        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+          {/* Status Banner */}
+          <View style={[styles.alertBanner, { backgroundColor: theme.colors.primary + '20' }]}>
+            <Ionicons 
+              name={
+                finderState === 'completed' ? 'checkmark-done-circle' :
+                finderState === 'awaiting_pickup' ? 'location-outline' :
+                finderState === 'needs_dropoff' ? 'business-outline' :
+                'time-outline'
+              } 
+              size={24} 
+              color={theme.colors.primary} 
+            />
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+                {finderState === 'completed' ? 'Item Returned Successfully!' :
+                 finderState === 'awaiting_pickup' ? 'Waiting for Pickup' :
+                 finderState === 'needs_dropoff' ? 'Ready for Drop-off' :
+                 finderState === 'needs_preference' ? 'Select Return Method' :
+                 finderState === 'awaiting_resolution' ? 'Waiting for Preference' :
+                 finderState === 'scheduling_meetup' ? 'Scheduling Meetup' :
+                 'Claim Accepted'}
+              </Text>
+              <Text style={[theme.typography.small, { color: theme.colors.textSecondary, marginTop: 2 }]}>
+                {finderState === 'completed' ? 'Thank you for helping!' :
+                 finderState === 'awaiting_pickup' ? 'The claimant will pick up the item soon' :
+                 finderState === 'needs_dropoff' ? 'Please drop off the item at the designated location' :
+                 finderState === 'needs_preference' ? 'Choose how you want to return the item' :
+                 finderState === 'awaiting_resolution' ? 'Waiting for both parties to submit preferences' :
+                 'Arranging return with claimant'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Claimant Info - Only show contact details if in-person method resolved */}
+          {claimant ? (
+            <Card style={styles.section}>
+              <Text style={[theme.typography.h3, { color: theme.colors.text, marginBottom: 16, fontSize: 18 }]}>
+                Claimant Contact Info
+              </Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="person-outline" size={20} color={theme.colors.textSecondary} />
+                <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
+                  {claimant.name}
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="mail-outline" size={20} color={theme.colors.textSecondary} />
+                <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
+                  {claimant.email}
+                </Text>
+              </View>
+              {claimant.phone && (
+                <View style={styles.infoRow}>
+                  <Ionicons name="call-outline" size={20} color={theme.colors.textSecondary} />
+                  <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
+                    {claimant.phone}
+                  </Text>
+                </View>
+              )}
+            </Card>
+          ) : (
+            <Card style={styles.section}>
+              <View style={styles.infoRow}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.success} />
+                <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginLeft: 12 }]}>
+                  Claimant identity is protected until return method is finalized
+                </Text>
+              </View>
+            </Card>
+          )}
+
+          {/* Return Details */}
+          <Card style={styles.section}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[theme.typography.h3, { color: theme.colors.text, fontSize: 18 }]}>
+                Return Details
+              </Text>
+              {finderState !== 'completed' && finderState !== 'awaiting_pickup' && (
+                <TouchableOpacity 
+                  onPress={() => {
+                    setEditLocationValue(match.returnLocation || '');
+                    setShowEditLocation(!showEditLocation);
+                  }}
+                  style={{ padding: 4 }}
+                >
+                  <Ionicons name="pencil-outline" size={18} color={theme.colors.primary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="swap-horizontal-outline" size={20} color={theme.colors.textSecondary} />
+              <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
+                Method: {formatPreference(match.resolvedReturnMethod || match.foundUserPreference)}
+              </Text>
+            </View>
+            {match.returnLocation && !showEditLocation && (
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={theme.colors.textSecondary} />
+                <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
+                  Location: {match.returnLocation}
+                </Text>
+              </View>
+            )}
+            {showEditLocation && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={[theme.typography.small, { color: theme.colors.textSecondary, marginBottom: 4 }]}>
+                  Update Location
+                </Text>
+                <TextInput
+                  style={[styles.editInput, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                  placeholder="Enter new location..."
+                  placeholderTextColor={theme.colors.textTertiary}
+                  value={editLocationValue}
+                  onChangeText={setEditLocationValue}
+                />
+                <View style={{ flexDirection: 'row', marginTop: 8, gap: 8 }}>
+                  <TouchableOpacity 
+                    style={{ flex: 1, padding: 10, alignItems: 'center' }}
+                    onPress={() => setShowEditLocation(false)}
+                  >
+                    <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={async () => {
+                      if (!editLocationValue.trim()) {
+                        Alert.alert('Error', 'Please enter a location');
+                        return;
+                      }
+                      try {
+                        await updateClaimDetailsAsync({
+                          matchId: matchId!,
+                          data: { returnLocationName: editLocationValue }
+                        });
+                        Alert.alert('Success', 'Location updated successfully');
+                        setShowEditLocation(false);
+                        refetch();
+                      } catch (err: any) {
+                        Alert.alert('Error', err.response?.data?.error || err.message || 'Failed to update location');
+                      }
+                    }}
+                    disabled={isUpdatingClaimDetails}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '600' }}>
+                      {isUpdatingClaimDetails ? 'Saving...' : 'Save'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            {match.notifiedAt && (
+              <View style={styles.infoRow}>
+                <Ionicons name="checkmark-circle-outline" size={20} color={theme.colors.success} />
+                <Text style={[theme.typography.body, { color: theme.colors.success, marginLeft: 12 }]}>
+                  Dropped off: {new Date(match.notifiedAt).toLocaleDateString()}
+                </Text>
+              </View>
+            )}
+          </Card>
+
+          {/* Item Details */}
+          <Card style={styles.section}>
+            <Text style={[theme.typography.h3, { color: theme.colors.text, marginBottom: 16, fontSize: 18 }]}>
+              Item Claimed
+            </Text>
+            {imageUri && (
+              <Image source={{ uri: imageUri }} style={styles.itemImage} />
+            )}
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text, marginTop: 12 }]}>
+              {lostItem.title}
+            </Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginTop: 8 }]}>
+              {lostItem.description}
+            </Text>
+          </Card>
+        </ScrollView>
+
+        {/* Footer Actions */}
+        {finderState !== 'completed' && (
+          <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+            {finderState === 'scheduling_meetup' ? (
+              <Button
+                title="View Contact Info"
+                onPress={() => router.push(`/scheduling/contact-info?matchId=${matchId}&type=found`)}
+                style={{ flex: 1 }}
+              />
+            ) : finderState === 'needs_dropoff' || finderState === 'awaiting_pickup' ? (
+              <Button
+                title="View L&F Location"
+                onPress={() => router.push(`/scheduling/lost-and-found?matchId=${matchId}&type=found`)}
+                style={{ flex: 1 }}
+              />
+            ) : (finderState === 'needs_preference' || finderState === 'awaiting_resolution') ? (
+              <Button
+                title="Continue"
+                onPress={() => router.push(`/scheduling/preference?matchId=${matchId}&type=found`)}
+                style={{ flex: 1 }}
+              />
+            ) : null}
+          </View>
+        )}
+      </View>
+    );
   }
 
   return (
@@ -225,31 +453,19 @@ export default function ClaimReviewScreen() {
           </Text>
         </View>
 
-        {/* Claimant Info */}
+        {/* Someone claimed - identity hidden */}
         <Card style={styles.section}>
-          <Text style={[theme.typography.h3, { color: theme.colors.text, marginBottom: 16, fontSize: 18 }]}>
-            Claimant Information
-          </Text>
-          <View style={styles.infoRow}>
-            <Ionicons name="person-outline" size={20} color={theme.colors.textSecondary} />
-            <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
-              {claimant.name}
-            </Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="mail-outline" size={20} color={theme.colors.textSecondary} />
-            <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
-              {claimant.email}
-            </Text>
-          </View>
-          {claimant.phone && (
-            <View style={styles.infoRow}>
-              <Ionicons name="call-outline" size={20} color={theme.colors.textSecondary} />
-              <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 12 }]}>
-                {claimant.phone}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="person-circle-outline" size={40} color={theme.colors.primary} />
+            <View style={{ marginLeft: 12 }}>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+                Someone claimed this item
+              </Text>
+              <Text style={[theme.typography.small, { color: theme.colors.textSecondary, marginTop: 2 }]}>
+                Identity protected until return method is confirmed
               </Text>
             </View>
-          )}
+          </View>
         </Card>
 
         {/* Lost Item Details */}
@@ -576,5 +792,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  editInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+  },
+  saveButton: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 6,
+    alignItems: 'center',
   },
 });

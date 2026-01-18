@@ -70,6 +70,7 @@ export const useMatches = (params?: GetMatchesParams) => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['matchStatus'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
+      queryClient.invalidateQueries({ queryKey: ['item'] }); // Invalidate all single item queries
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
@@ -241,4 +242,20 @@ export const useRejectProposal = () => {
       queryClient.invalidateQueries({ queryKey: ['matchStatus'] });
     },
   });
+};
+// Get the match for a lost item (to determine navigation)
+export const useMatchForLostItem = (itemId?: string) => {
+  const query = useQuery({
+    queryKey: ['matchForLostItem', itemId],
+    queryFn: () => matchesApi.getMatchForLostItem(itemId!),
+    enabled: !!itemId,
+    retry: false, // Don't retry if not found
+  });
+
+  return {
+    matchInfo: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+  };
 };

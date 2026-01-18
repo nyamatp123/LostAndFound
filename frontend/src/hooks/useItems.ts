@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { itemsApi, CreateItemData, UpdateItemData, GetItemsParams } from '../api';
+import { itemsApi, CreateItemData, UpdateItemData, GetItemsParams, UpdateClaimDetailsData } from '../api';
 
 export const useItems = (type?: 'lost' | 'found') => {
   const queryClient = useQueryClient();
@@ -64,5 +64,38 @@ export const useItem = (id?: string) => {
     isLoading: itemQuery.isLoading,
     error: itemQuery.error,
     refetch: itemQuery.refetch,
+  };
+};
+
+// Hook for found items with claim status (for finder dashboard)
+export const useFoundItemsWithClaimStatus = (polling = false) => {
+  const queryClient = useQueryClient();
+  
+  const query = useQuery({
+    queryKey: ['foundItemsWithStatus'],
+    queryFn: () => itemsApi.getFoundItemsWithClaimStatus(),
+    refetchInterval: polling ? 10000 : false, // Poll every 10 seconds if enabled
+  });
+
+  const updateClaimDetailsMutation = useMutation({
+    mutationFn: ({ matchId, data }: { matchId: string; data: UpdateClaimDetailsData }) =>
+      itemsApi.updateClaimDetails(matchId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['foundItemsWithStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['claimsForFinder'] });
+      queryClient.invalidateQueries({ queryKey: ['claimDetails'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+
+  return {
+    items: query.data || [],
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+
+    updateClaimDetails: updateClaimDetailsMutation.mutate,
+    updateClaimDetailsAsync: updateClaimDetailsMutation.mutateAsync,
+    isUpdatingClaimDetails: updateClaimDetailsMutation.isPending,
   };
 };

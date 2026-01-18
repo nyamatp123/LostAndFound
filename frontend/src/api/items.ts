@@ -25,6 +25,30 @@ export interface GetItemsParams {
   status?: string;
 }
 
+export type ClaimStatus = 'unclaimed' | 'claim_pending' | 'accepted' | 'negotiating' | 'awaiting_pickup' | 'returned' | 'declined';
+
+export interface ActiveClaim {
+  matchId: number;
+  status: string;
+  claimantName: string;
+  claimantId: number;
+  resolvedReturnMethod?: string;
+  notifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ItemWithClaimStatus extends Item {
+  claimStatus: ClaimStatus;
+  activeClaim: ActiveClaim | null;
+}
+
+export interface UpdateClaimDetailsData {
+  returnLocation?: string;
+  returnLocationName?: string;
+  returnMethod?: 'in_person' | 'local_lost_and_found';
+}
+
 export const itemsApi = {
   getItems: async (params?: GetItemsParams): Promise<Item[]> => {
     const response = await apiClient.get<Item[]>('/items', { params });
@@ -33,6 +57,11 @@ export const itemsApi = {
 
   getItem: async (id: string): Promise<Item> => {
     const response = await apiClient.get<Item>(`/items/${id}`);
+    return response.data;
+  },
+
+  getFoundItemsWithClaimStatus: async (): Promise<ItemWithClaimStatus[]> => {
+    const response = await apiClient.get<ItemWithClaimStatus[]>('/items/found-with-status');
     return response.data;
   },
 
@@ -48,6 +77,11 @@ export const itemsApi = {
 
   deleteItem: async (id: string): Promise<void> => {
     await apiClient.delete(`/items/${id}`);
+  },
+
+  updateClaimDetails: async (matchId: string, data: UpdateClaimDetailsData): Promise<{ success: boolean; message: string; match: any }> => {
+    const response = await apiClient.put<{ success: boolean; message: string; match: any }>(`/items/claims/${matchId}`, data);
+    return response.data;
   },
 
   uploadImage: async (uri: string): Promise<string> => {

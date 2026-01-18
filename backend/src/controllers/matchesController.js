@@ -656,6 +656,15 @@ const updatePreference = async (req, res) => {
     const isLostUser = match.lostItem.userId === user.id;
     const isFoundUser = match.foundItem.userId === user.id;
 
+    console.log("updatePreference debug:", {
+      userId: user.id,
+      lostItemUserId: match.lostItem.userId,
+      foundItemUserId: match.foundItem.userId,
+      isLostUser,
+      isFoundUser,
+      matchStatus: match.status
+    });
+
     if (!isLostUser && !isFoundUser) {
       return res.status(403).json({
         error: "Not authorized to update preference for this match"
@@ -748,8 +757,10 @@ const updatePreference = async (req, res) => {
     res.json(finalMatch);
   } catch (error) {
     console.error("Update preference error:", error);
+    console.error("Error stack:", error.stack);
     res.status(500).json({
-      error: "Internal server error while updating preference"
+      error: "Internal server error while updating preference",
+      details: error.message
     });
   }
 };
@@ -800,12 +811,46 @@ const getMatchStatus = async (req, res) => {
     // Return match with user role context
     const userRole = match.lostItem.userId === user.id ? "lost" : "found";
     const bothSubmitted = !!(match.lostUserPreference && match.foundUserPreference);
+    const isResolved = !!match.resolvedReturnMethod;
+
+    // Determine navigation target based on current state
+    let navigationTarget = null;
+    if (isResolved) {
+      if (match.resolvedReturnMethod === "in_person") {
+        navigationTarget = "contact_info";
+      } else if (match.resolvedReturnMethod === "local_lost_and_found") {
+        navigationTarget = "lost_and_found";
+      }
+    } else if (userRole === "lost" && match.lostUserPreference) {
+      navigationTarget = "waiting";
+    } else if (userRole === "found" && match.foundUserPreference) {
+      navigationTarget = "waiting";
+    } else {
+      navigationTarget = "preference";
+    }
+
+    // Only reveal other party's identity if in-person method resolved
+    const shouldRevealIdentity = match.resolvedReturnMethod === "in_person";
+    const otherParty = userRole === "lost" ? match.foundItem.user : match.lostItem.user;
 
     res.json({
-      ...match,
+      id: match.id,
+      status: match.status,
+      lostUserPreference: match.lostUserPreference,
+      foundUserPreference: match.foundUserPreference,
+      resolvedReturnMethod: match.resolvedReturnMethod,
+      returnLocation: match.returnLocation,
+      notifiedAt: match.notifiedAt,
       userRole,
       bothSubmitted,
-      isResolved: !!match.resolvedReturnMethod
+      isResolved,
+      navigationTarget,
+      // Only include contact info if in-person resolved
+      otherPartyContact: shouldRevealIdentity ? {
+        name: otherParty.name,
+        email: otherParty.email,
+        phone: otherParty.phone
+      } : null
     });
   } catch (error) {
     console.error("Get match status error:", error);
@@ -1002,10 +1047,12 @@ const getClaimDetails = async (req, res) => {
       return res.status(403).json({ error: "Not authorized to view this claim" });
     }
 
-    // Determine current state for the finder
-    let finderState = "pending_review"; // Finder needs to accept/decline
+    // Determine current state for the finder - works for ALL statuses
+    let finderState = "pending_review"; // Default: Finder needs to accept/decline
     
-    if (match.status === "declined") {
+    if (match.status === "pending") {
+      finderState = "pending_review";
+    } else if (match.status === "declined") {
       finderState = "declined";
     } else if (match.status === "negotiating") {
       // Finder made a counter-proposal, waiting for claimant
@@ -1028,6 +1075,11 @@ const getClaimDetails = async (req, res) => {
       finderState = "completed";
     }
 
+    // Only reveal claimant identity if:
+    // 1. Return method is resolved AND
+    // 2. Return method is in_person (not L&F)
+    const shouldRevealIdentity = match.resolvedReturnMethod === "in_person";
+
     res.json({
       match: {
         id: match.id,
@@ -1045,12 +1097,13 @@ const getClaimDetails = async (req, res) => {
         createdAt: match.createdAt,
         updatedAt: match.updatedAt
       },
-      claimant: {
+      // Only include full claimant info if in-person method resolved
+      claimant: shouldRevealIdentity ? {
         id: match.lostItem.user.id,
         name: match.lostItem.user.name,
         email: match.lostItem.user.email,
         phone: match.lostItem.user.phone
-      },
+      } : null,
       lostItem: {
         id: match.lostItem.id,
         title: match.lostItem.title,
@@ -1101,8 +1154,15 @@ const acceptClaim = async (req, res) => {
       return res.status(403).json({ error: "Not authorized to accept this claim" });
     }
 
+    // Handle already accepted or other non-pending states gracefully
     if (match.status !== "pending") {
-      return res.status(400).json({ error: "Claim is not in pending state" });
+      // Return current match state instead of error - claim already processed
+      return res.json({
+        success: true,
+        message: `Claim already ${match.status}`,
+        match: match,
+        alreadyProcessed: true
+      });
     }
 
     // Update match status to accepted
@@ -1440,6 +1500,88 @@ const getClaimsForFinder = async (req, res) => {
   }
 };
 
+/**
+ * Get the active match for a lost item
+ * Used to navigate to correct scheduling screen from lost item details
+ */
+const getMatchForLostItem = async (req, res) => {
+  try {
+    const user = req.user;
+    const itemId = parseInt(req.params.itemId);
+
+    if (isNaN(itemId)) {
+      return res.status(400).json({ error: "Invalid item ID" });
+    }
+
+    // Verify user owns this lost item
+    const item = await prisma.item.findUnique({
+      where: { id: itemId }
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: "Item not found" });
+    }
+
+    if (item.userId !== user.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    // Get the active match for this lost item
+    const match = await prisma.match.findFirst({
+      where: {
+        lostItemId: itemId,
+        status: { notIn: ["declined", "completed"] }
+      },
+      include: {
+        foundItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (!match) {
+      return res.status(404).json({ error: "No active match found for this item" });
+    }
+
+    // Determine navigation target
+    let navigationTarget = "preference";
+    if (match.resolvedReturnMethod) {
+      if (match.resolvedReturnMethod === "in_person") {
+        navigationTarget = "contact_info";
+      } else {
+        navigationTarget = "lost_and_found";
+      }
+    } else if (match.lostUserPreference) {
+      navigationTarget = "waiting";
+    }
+
+    // Only reveal finder identity if in-person method resolved
+    const shouldRevealIdentity = match.resolvedReturnMethod === "in_person";
+
+    res.json({
+      matchId: match.id,
+      status: match.status,
+      lostUserPreference: match.lostUserPreference,
+      foundUserPreference: match.foundUserPreference,
+      resolvedReturnMethod: match.resolvedReturnMethod,
+      returnLocation: match.returnLocation,
+      notifiedAt: match.notifiedAt,
+      navigationTarget,
+      finderContact: shouldRevealIdentity ? {
+        name: match.foundItem.user.name,
+        email: match.foundItem.user.email,
+        phone: match.foundItem.user.phone
+      } : null
+    });
+  } catch (error) {
+    console.error("Get match for lost item error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 module.exports = {
   createMatch,
   getMatchesForItem,
@@ -1456,5 +1598,6 @@ module.exports = {
   proposeAlternative,
   acceptProposal,
   rejectProposal,
-  getClaimsForFinder
+  getClaimsForFinder,
+  getMatchForLostItem
 };
