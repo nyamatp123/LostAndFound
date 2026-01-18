@@ -71,7 +71,7 @@ export default function SignInScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Text style={[theme.typography.h1, { color: theme.colors.text }]}>
-              Lost + Found
+              MatchBack
             </Text>
             <Text
               style={[
@@ -79,7 +79,7 @@ export default function SignInScreen() {
                 { color: theme.colors.textSecondary, marginTop: 8 },
               ]}
             >
-              Reuniting lost items across Vancouver
+              Reuniting lost items across Vancouver.
             </Text>
           </View>
 
@@ -87,7 +87,7 @@ export default function SignInScreen() {
           <View style={styles.form}>
             <Input
               label="Email"
-              placeholder="name.lastname@gmail.com"
+              placeholder="name@gmail.com"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
