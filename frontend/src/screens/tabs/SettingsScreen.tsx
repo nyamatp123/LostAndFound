@@ -1,16 +1,28 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch, Modal, TextInput, Linking } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme, useTheme } from '../../theme';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Input } from '../../components/common/Input';
 import { useAuth } from '../../hooks/useAuth';
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
   const { setTheme } = useTheme();
   const { logout, currentUser, deleteAccount } = useAuth();
+  const [isProfileModalVisible, setIsProfileModalVisible] = useState(false);
+  const [profileDraft, setProfileDraft] = useState({
+    fullName: '',
+    email: '',
+    city: '',
+  });
+  const [profileOverrides, setProfileOverrides] = useState<{
+    fullName?: string;
+    email?: string;
+    city?: string;
+  }>({});
 
   // State for settings
   const [pushNotifications, setPushNotifications] = useState(true);
@@ -21,6 +33,15 @@ export default function SettingsScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const displayedUser = useMemo(
+    () => ({
+      fullName: profileOverrides.fullName ?? currentUser?.fullName ?? '',
+      email: profileOverrides.email ?? currentUser?.email ?? '',
+      city: profileOverrides.city ?? currentUser?.city ?? '',
+    }),
+    [profileOverrides, currentUser]
+  );
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -52,6 +73,37 @@ export default function SettingsScreen() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const openProfileEditor = () => {
+    setProfileDraft({ fullName: '', email: '', city: '' });
+    setIsProfileModalVisible(true);
+  };
+
+  const handleSaveProfile = () => {
+    const updates: {
+      fullName?: string;
+      email?: string;
+      city?: string;
+    } = {};
+
+    if (profileDraft.fullName.trim()) {
+      updates.fullName = profileDraft.fullName.trim();
+    }
+
+    if (profileDraft.email.trim()) {
+      updates.email = profileDraft.email.trim();
+    }
+
+    if (profileDraft.city.trim()) {
+      updates.city = profileDraft.city.trim();
+    }
+
+    if (Object.keys(updates).length > 0) {
+      setProfileOverrides((prev) => ({ ...prev, ...updates }));
+    }
+
+    setIsProfileModalVisible(false);
   };
 
   const SettingsRow = ({
@@ -142,8 +194,8 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="person-outline"
             title="Profile"
-            subtitle={currentUser?.email || 'View and edit profile'}
-            onPress={() => Alert.alert('TODO', 'Profile screen')}
+            subtitle={displayedUser.email || 'View and edit profile'}
+            onPress={openProfileEditor}
           />
           <SettingsRow
             icon="key-outline"
@@ -297,6 +349,61 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={isProfileModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsProfileModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.profileModalContent, { backgroundColor: theme.colors.surface }]}>
+            <Text style={[theme.typography.h3, { color: theme.colors.text }]}>Edit Profile</Text>
+            <Text style={[theme.typography.small, { color: theme.colors.textSecondary, marginTop: 4 }]}>
+              Update only the fields you want to change.
+            </Text>
+
+            <View style={{ marginTop: theme.spacing.md, width: '100%' }}>
+              <Input
+                label="Name"
+                placeholder={displayedUser.fullName || 'Name'}
+                value={profileDraft.fullName}
+                onChangeText={(value) => setProfileDraft((prev) => ({ ...prev, fullName: value }))}
+                autoCapitalize="words"
+              />
+              <Input
+                label="Email"
+                placeholder={displayedUser.email || 'Email'}
+                value={profileDraft.email}
+                onChangeText={(value) => setProfileDraft((prev) => ({ ...prev, email: value }))}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <Input
+                label="Location"
+                placeholder={displayedUser.city ? displayedUser.city : 'Location Unavailable'}
+                value={profileDraft.city}
+                onChangeText={(value) => setProfileDraft((prev) => ({ ...prev, city: value }))}
+              />
+            </View>
+
+            <View style={styles.modalButtons}>
+              <Button
+                title="Cancel"
+                variant="outline"
+                onPress={() => setIsProfileModalVisible(false)}
+                style={{ flex: 1, marginRight: 8 }}
+              />
+              <Button
+                title="Save"
+                onPress={handleSaveProfile}
+                style={{ flex: 1, marginLeft: 8 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -310,6 +417,7 @@ const styles = StyleSheet.create({
   rowText: { marginLeft: 12, flex: 1 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalContent: { width: '100%', borderRadius: 16, padding: 24, alignItems: 'center' },
+  profileModalContent: { width: '100%', borderRadius: 16, padding: 24, alignItems: 'center' },
   modalIcon: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center' },
   confirmInput: { width: '100%', height: 48, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, fontSize: 16, textAlign: 'center' },
   modalButtons: { flexDirection: 'row', marginTop: 24, width: '100%' },
