@@ -137,7 +137,36 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * Get current user profile
+ */
+const getMe = async (req, res) => {
+  try {
+    // req.user is set by authMiddleware
+    if (!req.user) {
+      return res.status(401).json({
+        error: "Not authenticated"
+      });
+    }
+
+    res.json({
+      id: req.user.id,
+      email: req.user.email,
+      name: req.user.name,
+      phone: req.user.phone,
+      university: req.user.university,
+      createdAt: req.user.createdAt
+    });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    res.status(500).json({
+      error: "Internal server error"
+    });
+  }
+};
+
 module.exports = {
   register,
-  login
+  login,
+  getMe
 };
