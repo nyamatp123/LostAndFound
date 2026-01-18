@@ -21,6 +21,7 @@ export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
     category: string;
     description: string;
     imageUri: string;
+    imageBase64: string;
   }>();
   
   const { createItemAsync, isCreating } = useItems(itemType);
@@ -31,6 +32,9 @@ export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
       const latitude = parseFloat(params.latitude || '0');
       const longitude = parseFloat(params.longitude || '0');
       
+      // Use the base64 image passed from AddPhotoScreen
+      const images: string[] = params.imageBase64 ? [params.imageBase64] : [];
+      
       await createItemAsync({
         type: itemType,
         title: params.name || '',
@@ -39,7 +43,7 @@ export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
         location: JSON.stringify({ latitude, longitude }),
         coordinates: { latitude, longitude },
         timestamp: params.timestamp || new Date().toISOString(),
-        images: params.imageUri ? [params.imageUri] : [],
+        images,
       });
       setSubmitted(true);
     } catch (error: any) {

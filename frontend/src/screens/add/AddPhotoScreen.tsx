@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Platform, Modal, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,6 +14,8 @@ export default function AddPhotoScreen({ itemType }: AddPhotoScreenProps) {
   const theme = useAppTheme();
   const params = useLocalSearchParams();
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const pickImage = async (useCamera: boolean) => {
     try {
@@ -38,16 +40,19 @@ export default function AddPhotoScreen({ itemType }: AddPhotoScreenProps) {
             allowsEditing: true,
             aspect: [4, 3],
             quality: 0.8,
+            base64: true,
           })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: 'images',
             allowsEditing: true,
             aspect: [4, 3],
             quality: 0.8,
+            base64: true,
           });
 
       if (!result.canceled && result.assets[0]) {
         setImageUri(result.assets[0].uri);
+        setImageBase64(result.assets[0].base64 || null);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -63,11 +68,18 @@ export default function AddPhotoScreen({ itemType }: AddPhotoScreenProps) {
     ]);
   };
 
-  const handleNext = () => {
-    router.push({
-      pathname: `/${itemType}/add/review` as any,
-      params: { ...params, imageUri: imageUri || '' }
-    });
+  const handleNext = async () => {
+    if (imageBase64) {
+      setIsNavigating(true);
+    }
+    // Small delay to allow the loading modal to render
+    setTimeout(() => {
+      router.push({
+        pathname: `/${itemType}/add/review` as any,
+        params: { ...params, imageUri: imageUri || '', imageBase64: imageBase64 || '' }
+      });
+      setIsNavigating(false);
+    }, 100);
   };
 
   return (
@@ -106,7 +118,7 @@ export default function AddPhotoScreen({ itemType }: AddPhotoScreenProps) {
               <Image source={{ uri: imageUri }} style={styles.image} />
               <TouchableOpacity
                 style={[styles.removeButton, { backgroundColor: theme.colors.error }]}
-                onPress={() => setImageUri(null)}
+                onPress={() => { setImageUri(null); setImageBase64(null); }}
               >
                 <Ionicons name="close" size={20} color="#fff" />
               </TouchableOpacity>
@@ -127,8 +139,20 @@ export default function AddPhotoScreen({ itemType }: AddPhotoScreenProps) {
 
       {/* Footer */}
       <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-        <Button title={imageUri ? 'Next' : 'Skip'} onPress={handleNext} />
+        <Button title={imageUri ? 'Next' : 'Skip'} onPress={handleNext} disabled={isNavigating} />
       </View>
+
+      {/* Loading Modal */}
+      <Modal transparent visible={isNavigating} animationType="fade">
+        <View style={styles.loadingOverlay}>
+          <View style={[styles.loadingBox, { backgroundColor: theme.colors.surface }]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[theme.typography.body, { color: theme.colors.text, marginTop: 16 }]}>
+              Preparing image...
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -177,4 +201,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   footer: { padding: 16, borderTopWidth: 1 },
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingBox: {
+    padding: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    minWidth: 200,
+  },
 });

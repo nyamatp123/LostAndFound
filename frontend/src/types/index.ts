@@ -15,15 +15,17 @@ export interface Item {
   type: 'lost' | 'found';
   status: 'unfound' | 'found' | 'matched' | 'returned';
   name: string;
+  title?: string;
   description: string;
   category: string;
-  location: string;
+  location: string | { latitude: number; longitude: number };
   coordinates?: {
     latitude: number;
     longitude: number;
   };
   timestamp: string;
   imageUrl?: string;
+  imageUrls?: string[];
   attributes?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
