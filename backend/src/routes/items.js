@@ -4,7 +4,8 @@ const {
   createItem,
   getUserItems,
   getItemById,
-  updateItemStatus
+  updateItemStatus,
+  deleteItem
 } = require("../controllers/itemsController");
 
 const router = Router();
@@ -23,5 +24,8 @@ router.get("/:id", getItemById);
 
 // PATCH /api/items/:id/status - Update item status
 router.patch("/:id/status", updateItemStatus);
+
+// DELETE /api/items/:id - Delete an item
+router.delete("/:id", deleteItem);
 
 module.exports = router;

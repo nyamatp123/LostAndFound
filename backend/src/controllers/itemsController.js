@@ -88,7 +88,7 @@ const createItem = async (req, res) => {
         textEmbedding,
         imageEmbeddings,
         imageUrls,
-        status: "active"
+        status: "unfound"
       }
     });
 
@@ -98,7 +98,7 @@ const createItem = async (req, res) => {
       where: {
         type: oppositeType,
         category,
-        status: "active",
+        status: { in: ["unfound", "active"] },
         id: { not: newItem.id }
       }
     });
@@ -253,9 +253,9 @@ const updateItemStatus = async (req, res) => {
       });
     }
 
-    if (!status || !["active", "matched", "resolved"].includes(status)) {
+    if (!status || !["unfound", "found", "matched", "returned"].includes(status)) {
       return res.status(400).json({
-        error: "Invalid status. Must be 'active', 'matched', or 'resolved'"
+        error: "Invalid status. Must be 'unfound', 'found', 'matched', or 'returned'"
       });
     }
 
@@ -289,9 +289,64 @@ const updateItemStatus = async (req, res) => {
   }
 };
 
+/**
+ * Delete an item
+ */
+const deleteItem = async (req, res) => {
+  try {
+    const user = req.user;
+    const itemId = parseInt(req.params.id);
+
+    if (isNaN(itemId)) {
+      return res.status(400).json({
+        error: "Invalid item ID"
+      });
+    }
+
+    const item = await prisma.item.findUnique({
+      where: { id: itemId }
+    });
+
+    if (!item) {
+      return res.status(404).json({
+        error: "Item not found"
+      });
+    }
+
+    if (item.userId !== user.id) {
+      return res.status(403).json({
+        error: "Not authorized to delete this item"
+      });
+    }
+
+    // Delete associated matches first
+    await prisma.match.deleteMany({
+      where: {
+        OR: [
+          { lostItemId: itemId },
+          { foundItemId: itemId }
+        ]
+      }
+    });
+
+    // Delete the item
+    await prisma.item.delete({
+      where: { id: itemId }
+    });
+
+    res.json({ message: "Item deleted successfully" });
+  } catch (error) {
+    console.error("Delete item error:", error);
+    res.status(500).json({
+      error: "Internal server error while deleting item"
+    });
+  }
+};
+
 module.exports = {
   createItem,
   getUserItems,
   getItemById,
-  updateItemStatus
+  updateItemStatus,
+  deleteItem
 };

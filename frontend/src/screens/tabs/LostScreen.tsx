@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Image,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,14 +19,31 @@ import { Item } from '../../types';
 
 export default function LostScreen() {
   const theme = useAppTheme();
-  const { items, isLoading, refetch } = useItems('lost');
+  const { items, isLoading, refetch, deleteItem, isDeleting } = useItems('lost');
 
-  // Categorize items
-  const unfoundItems = items.filter((item: Item) => item.status === 'unfound');
+  // Categorize items - also include "active" for backwards compatibility
+  const unfoundItems = items.filter((item: Item) => item.status === 'unfound' || (item.status as string) === 'active');
   const foundItems = items.filter((item: Item) => item.status === 'found' || item.status === 'matched');
   const returnedItems = items.filter((item: Item) => item.status === 'returned');
 
-  const renderItemCard = (item: Item) => (
+  const handleDeleteItem = (item: Item) => {
+    Alert.alert(
+      'Delete Item',
+      `Are you sure you want to delete "${(item as any).name || (item as any).title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteItem(item.id);
+          },
+        },
+      ]
+    );
+  };
+
+  const renderItemCard = (item: Item, showDelete: boolean = false) => (
     <Card
       key={item.id}
       onPress={() => router.push(`/lost/${item.id}`)}
@@ -41,12 +59,21 @@ export default function LostScreen() {
         )}
         <View style={styles.itemInfo}>
           <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]} numberOfLines={1}>
-            {item.name}
+            {(item as any).name || (item as any).title}
           </Text>
           <Text style={[theme.typography.small, { color: theme.colors.textSecondary }]} numberOfLines={1}>
             {item.location}
           </Text>
         </View>
+        {showDelete && (
+          <TouchableOpacity
+            onPress={() => handleDeleteItem(item)}
+            style={styles.deleteButton}
+            disabled={isDeleting}
+          >
+            <Ionicons name="trash-outline" size={20} color={theme.colors.error || '#FF3B30'} />
+          </TouchableOpacity>
+        )}
         <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
       </View>
     </Card>
@@ -54,18 +81,19 @@ export default function LostScreen() {
 
   const renderCategory = (
     title: string,
-    items: Item[],
-    variant: 'unfound' | 'found' | 'returned'
+    categoryItems: Item[],
+    variant: 'unfound' | 'found' | 'returned',
+    showDelete: boolean = false
   ) => (
     <View style={styles.category}>
       <View style={styles.categoryHeader}>
         <LiquidPill label={title} variant={variant} />
         <Text style={[theme.typography.small, { color: theme.colors.textTertiary }]}>
-          {items.length} {items.length === 1 ? 'item' : 'items'}
+          {categoryItems.length} {categoryItems.length === 1 ? 'item' : 'items'}
         </Text>
       </View>
-      {items.length > 0 ? (
-        items.map(renderItemCard)
+      {categoryItems.length > 0 ? (
+        categoryItems.map((item) => renderItemCard(item, showDelete))
       ) : (
         <Text style={[theme.typography.body, { color: theme.colors.textTertiary, marginTop: 8 }]}>
           No items in this category
@@ -95,9 +123,9 @@ export default function LostScreen() {
           <RefreshControl refreshing={isLoading} onRefresh={refetch} />
         }
       >
-        {renderCategory('Unfound', unfoundItems, 'unfound')}
-        {renderCategory('Found', foundItems, 'matched')}
-        {renderCategory('Returned', returnedItems, 'returned')}
+        {renderCategory('Unfound', unfoundItems, 'unfound', true)}
+        {renderCategory('Found', foundItems, 'found', false)}
+        {renderCategory('Returned', returnedItems, 'returned', false)}
       </ScrollView>
     </View>
   );
@@ -161,5 +189,9 @@ const styles = StyleSheet.create({
   itemInfo: {
     flex: 1,
     marginLeft: 12,
+  },
+  deleteButton: {
+    padding: 8,
+    marginRight: 4,
   },
 });
