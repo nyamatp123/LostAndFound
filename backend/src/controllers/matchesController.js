@@ -151,10 +151,12 @@ const getPotentialMatches = async (req, res) => {
     }
 
     // Get all found items that are still active/unfound
+    // Exclude items from the current user (they shouldn't see their own found items as potential matches)
     const foundItems = await prisma.item.findMany({
       where: {
         type: "found",
-        status: { in: ["unfound", "active"] }
+        status: { in: ["unfound", "active"] },
+        userId: { not: user.id }
       },
       include: {
         user: {
