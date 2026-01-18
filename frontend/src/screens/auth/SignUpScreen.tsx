@@ -77,7 +77,7 @@ export default function SignUpScreen() {
     } catch (error: any) {
       Alert.alert(
         'Sign Up Failed',
-        error.response?.data?.message || 'Something went wrong. Please try again.'
+        error.response?.data?.error || error.response?.data?.message || 'Something went wrong. Please try again.'
       );
     }
   };
