@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -26,24 +26,32 @@ export default function FindScreen() {
   const { items: lostItems } = useItems('lost');
   const { createMatchAsync, isCreatingMatch } = useMatches();
 
-  // Filter to only unfound items
-  const unfoundItems = lostItems.filter((item: Item) => item.status === 'unfound');
-
-  const [selectedItemId, setSelectedItemId] = useState<string | undefined>(
-    unfoundItems[0]?.id
+  // Filter to only unfound items (include 'active' for backwards compatibility)
+  const unfoundItems = lostItems.filter((item: Item) => 
+    item.status === 'unfound' || (item.status as string) === 'active'
   );
+
+  const [selectedItemId, setSelectedItemId] = useState<string | undefined>(undefined);
   const [showPicker, setShowPicker] = useState(false);
+
+  // Update selectedItemId when items load or change
+  useEffect(() => {
+    if (unfoundItems.length > 0 && !selectedItemId) {
+      // Convert to string for consistency
+      setSelectedItemId(String(unfoundItems[0].id));
+    }
+  }, [unfoundItems, selectedItemId]);
 
   const { potentialMatches, isLoading } = usePotentialMatches(selectedItemId);
 
-  const selectedItem = unfoundItems.find((item: Item) => item.id === selectedItemId);
+  const selectedItem = unfoundItems.find((item: Item) => String(item.id) === selectedItemId);
 
   const handleClaim = async (match: PotentialMatch) => {
     if (!selectedItemId) return;
 
     Alert.alert(
       'Confirm Claim',
-      `Are you sure this is your ${selectedItem?.name}?`,
+      `Are you sure this is your ${(selectedItem as any)?.title || (selectedItem as any)?.name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -103,7 +111,7 @@ export default function FindScreen() {
       {/* Info Overlay */}
       <View style={[styles.infoOverlay, { backgroundColor: theme.colors.card }]}>
         <Text style={[theme.typography.h3, { color: theme.colors.text }]}>
-          {match.item.name}
+          {(match.item as any).title || (match.item as any).name}
         </Text>
         <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginTop: 4 }]} numberOfLines={2}>
           {match.item.description}
@@ -167,7 +175,7 @@ export default function FindScreen() {
         onPress={() => setShowPicker(!showPicker)}
       >
         <Text style={[theme.typography.body, { color: theme.colors.text, flex: 1 }]}>
-          {selectedItem?.name || 'Select an item'}
+          {(selectedItem as any)?.title || (selectedItem as any)?.name || 'Select an item'}
         </Text>
         <Ionicons name={showPicker ? 'chevron-up' : 'chevron-down'} size={20} color={theme.colors.text} />
       </TouchableOpacity>
@@ -183,7 +191,7 @@ export default function FindScreen() {
                 { borderBottomColor: theme.colors.borderLight },
               ]}
               onPress={() => {
-                setSelectedItemId(item.id);
+                setSelectedItemId(String(item.id));
                 setShowPicker(false);
               }}
             >
@@ -191,13 +199,13 @@ export default function FindScreen() {
                 style={[
                   theme.typography.body,
                   {
-                    color: item.id === selectedItemId ? theme.colors.primary : theme.colors.text,
+                    color: String(item.id) === selectedItemId ? theme.colors.primary : theme.colors.text,
                   },
                 ]}
               >
-                {item.name}
+                {(item as any).title || (item as any).name}
               </Text>
-              {item.id === selectedItemId && (
+              {String(item.id) === selectedItemId && (
                 <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
               )}
             </TouchableOpacity>

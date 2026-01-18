@@ -51,7 +51,7 @@ export default function SignInScreen() {
     } catch (error: any) {
       Alert.alert(
         'Sign In Failed',
-        error.response?.data?.message || 'Invalid email or password'
+        error.response?.data?.error || error.response?.data?.message || 'Invalid email or password'
       );
     }
   };
