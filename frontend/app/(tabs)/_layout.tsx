@@ -26,7 +26,7 @@ export default function TabLayout() {
         name="lost"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search-outline" size={size + 4} color={color} />
+            <Ionicons name="alert-circle-outline" size={size + 4} color={color} />
           ),
         }}
       />
@@ -42,7 +42,7 @@ export default function TabLayout() {
         name="find"
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="git-compare-outline" size={size + 4} color={color} />
+            <Ionicons name="search-outline" size={size + 4} color={color} />
           ),
         }}
       />
