@@ -17,6 +17,50 @@ import { LiquidPill } from '../../components/common/LiquidPill';
 import { useItems } from '../../hooks/useItems';
 import { Item } from '../../types';
 
+// Helper to get image URL from item
+const getItemImage = (item: Item): string | undefined => {
+  if (item.imageUrl) return item.imageUrl;
+  if (item.imageUrls && item.imageUrls.length > 0) {
+    const firstImage = item.imageUrls[0];
+    // Check if it's already a data URI or URL
+    if (firstImage.startsWith('data:') || firstImage.startsWith('http')) {
+      return firstImage;
+    }
+    // Assume base64 and add prefix
+    return `data:image/jpeg;base64,${firstImage}`;
+  }
+  return undefined;
+};
+
+// Helper to format location
+const formatLocation = (location: string | { latitude: number; longitude: number } | any): string => {
+  if (!location) return 'Location not specified';
+  
+  // If it's already a nicely formatted string (not JSON)
+  if (typeof location === 'string') {
+    try {
+      const parsed = JSON.parse(location);
+      if (parsed.latitude !== undefined && parsed.longitude !== undefined) {
+        return `${parsed.latitude.toFixed(4)}, ${parsed.longitude.toFixed(4)}`;
+      }
+      return location;
+    } catch {
+      // Not JSON, return as-is if it doesn't look like JSON
+      if (!location.startsWith('{')) {
+        return location;
+      }
+      return 'Location not specified';
+    }
+  }
+  
+  // If it's an object with coordinates
+  if (typeof location === 'object' && location.latitude !== undefined && location.longitude !== undefined) {
+    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+  }
+  
+  return 'Location not specified';
+};
+
 export default function LostScreen() {
   const theme = useAppTheme();
   const { items, isLoading, refetch, deleteItem, isDeleting } = useItems('lost');
@@ -43,41 +87,43 @@ export default function LostScreen() {
     );
   };
 
-  const renderItemCard = (item: Item, showDelete: boolean = false) => (
-    <Card
-      key={item.id}
-      onPress={() => router.push(`/lost/${item.id}`)}
-      style={styles.itemCard}
-    >
-      <View style={styles.cardContent}>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.itemImage} />
-        ) : (
-          <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.surface }]}>
-            <Ionicons name="image-outline" size={24} color={theme.colors.textTertiary} />
+  const renderItemCard = (item: Item, showDelete: boolean = false) => {
+    const imageUri = getItemImage(item);
+    const itemName = (item as any).name || (item as any).title || 'Unnamed Item';
+    
+    return (
+      <Card
+        key={item.id}
+        onPress={() => router.push(`/lost/${item.id}`)}
+        style={styles.itemCard}
+      >
+        <View style={styles.cardContent}>
+          {imageUri ? (
+            <Image source={{ uri: imageUri }} style={styles.itemImage} />
+          ) : (
+            <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.surface }]}>
+              <Ionicons name="image-outline" size={24} color={theme.colors.textTertiary} />
+            </View>
+          )}
+          <View style={styles.itemInfo}>
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]} numberOfLines={1}>
+              {itemName}
+            </Text>
           </View>
-        )}
-        <View style={styles.itemInfo}>
-          <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]} numberOfLines={1}>
-            {(item as any).name || (item as any).title}
-          </Text>
-          <Text style={[theme.typography.small, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-            {item.location}
-          </Text>
+          {showDelete && (
+            <TouchableOpacity
+              onPress={() => handleDeleteItem(item)}
+              style={styles.deleteButton}
+              disabled={isDeleting}
+            >
+              <Ionicons name="trash-outline" size={20} color={theme.colors.error || '#FF3B30'} />
+            </TouchableOpacity>
+          )}
+          <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
         </View>
-        {showDelete && (
-          <TouchableOpacity
-            onPress={() => handleDeleteItem(item)}
-            style={styles.deleteButton}
-            disabled={isDeleting}
-          >
-            <Ionicons name="trash-outline" size={20} color={theme.colors.error || '#FF3B30'} />
-          </TouchableOpacity>
-        )}
-        <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
-      </View>
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   const renderCategory = (
     title: string,

@@ -7,6 +7,46 @@ import { Button } from '../../src/components/common/Button';
 import { Card } from '../../src/components/common/Card';
 import { LiquidPill } from '../../src/components/common/LiquidPill';
 import { useItem, useItems } from '../../src/hooks/useItems';
+import { Item } from '../../src/types';
+
+// Helper to get image URL from item
+const getItemImage = (item: Item): string | undefined => {
+  if (item.imageUrl) return item.imageUrl;
+  if (item.imageUrls && item.imageUrls.length > 0) {
+    const firstImage = item.imageUrls[0];
+    if (firstImage.startsWith('data:') || firstImage.startsWith('http')) {
+      return firstImage;
+    }
+    return `data:image/jpeg;base64,${firstImage}`;
+  }
+  return undefined;
+};
+
+// Helper to format location
+const formatLocation = (location: string | { latitude: number; longitude: number } | any): string => {
+  if (!location) return 'Location not specified';
+  
+  if (typeof location === 'string') {
+    try {
+      const parsed = JSON.parse(location);
+      if (parsed.latitude !== undefined && parsed.longitude !== undefined) {
+        return `${parsed.latitude.toFixed(4)}, ${parsed.longitude.toFixed(4)}`;
+      }
+      return location;
+    } catch {
+      if (!location.startsWith('{')) {
+        return location;
+      }
+      return 'Location not specified';
+    }
+  }
+  
+  if (typeof location === 'object' && location.latitude !== undefined && location.longitude !== undefined) {
+    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+  }
+  
+  return 'Location not specified';
+};
 
 export default function FoundItemDetail() {
   const theme = useAppTheme();
@@ -75,8 +115,8 @@ export default function FoundItemDetail() {
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {/* Image */}
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.image} />
+        {getItemImage(item) ? (
+          <Image source={{ uri: getItemImage(item) }} style={styles.image} />
         ) : (
           <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.surface }]}>
             <Ionicons name="image-outline" size={64} color={theme.colors.textTertiary} />
@@ -97,7 +137,7 @@ export default function FoundItemDetail() {
             <Ionicons name="location-outline" size={20} color={theme.colors.textSecondary} />
             <View style={styles.detailText}>
               <Text style={[theme.typography.small, { color: theme.colors.textSecondary }]}>Found at</Text>
-              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{item.location}</Text>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{formatLocation(item.location)}</Text>
             </View>
           </View>
 
