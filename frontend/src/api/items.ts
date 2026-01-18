@@ -3,7 +3,7 @@ import { Item } from '../types';
 
 export interface CreateItemData {
   type: 'lost' | 'found';
-  name: string;
+  title: string;
   description: string;
   category: string;
   location: string;
@@ -12,7 +12,7 @@ export interface CreateItemData {
     longitude: number;
   };
   timestamp: string;
-  imageUrl?: string;
+  images?: string[];
   attributes?: Record<string, any>;
 }
 
