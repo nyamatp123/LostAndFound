@@ -4,12 +4,12 @@
     "slug": "lost-and-found",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/matchback.png",
     "userInterfaceStyle": "automatic",
     "scheme": "lostandfound",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/matchback.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -22,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/matchback.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.lostandfound.app",
@@ -31,7 +31,7 @@
       "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/matchback.png"
     },
     "plugins": [
       "expo-router",
