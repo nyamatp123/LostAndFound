@@ -65,7 +65,25 @@ export default function FindScreen() {
               // Navigate to scheduling with the match ID
               router.push(`/scheduling/preference?matchId=${createdMatch.id}&type=lost`);
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to create match');
+              // Check if it's a 409 conflict (match already exists)
+              if (error.response?.status === 409 && error.response?.data?.match) {
+                const existingMatch = error.response.data.match;
+                Alert.alert(
+                  'Already Claimed',
+                  'You have already claimed this item. Would you like to check its status?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Check Status',
+                      onPress: () => {
+                        router.push(`/scheduling/preference?matchId=${existingMatch.id}&type=lost`);
+                      },
+                    },
+                  ]
+                );
+              } else {
+                Alert.alert('Error', error.response?.data?.error || error.message || 'Failed to create match');
+              }
             }
           },
         },
