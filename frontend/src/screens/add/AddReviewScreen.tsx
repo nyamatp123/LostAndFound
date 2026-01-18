@@ -22,19 +22,19 @@ export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
     imageUri: string;
   }>();
   
-  const { createItem, isCreating } = useItems(itemType);
+  const { createItemAsync, isCreating } = useItems(itemType);
   const [submitted, setSubmitted] = useState(false);
 
   const handleSubmit = async () => {
     try {
-      await createItem({
+      await createItemAsync({
         type: itemType,
-        name: params.name || '',
+        title: params.name || '',
         category: params.category || '',
         description: params.description || '',
         location: params.location || '',
         timestamp: params.timestamp || new Date().toISOString(),
-        imageUrl: params.imageUri || undefined,
+        images: params.imageUri ? [params.imageUri] : [],
       });
       setSubmitted(true);
     } catch (error: any) {
