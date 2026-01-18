@@ -6,18 +6,20 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { useAppTheme } from '../../theme';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { useMatches } from '../../hooks/useMatches';
+import { useMatches, useMatchStatus } from '../../hooks/useMatches';
 
 export default function InPersonSchedulingScreen() {
   const theme = useAppTheme();
-  const { itemId, type } = useLocalSearchParams<{ itemId: string; type: string }>();
-  const { updateMatchAsync, isUpdatingMatch } = useMatches();
+  const { matchId, type } = useLocalSearchParams<{ matchId: string; type: string }>();
+  const { updatePreferenceAsync, isUpdatingPreference, completeReturnAsync, isCompleting } = useMatches();
+  const { matchStatus } = useMatchStatus(matchId);
   
   const [date, setDate] = useState(new Date(Date.now() + 24 * 60 * 60 * 1000)); // Tomorrow
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
+  const [isConfirmed, setIsConfirmed] = useState(false);
 
   const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') setShowDatePicker(false);
@@ -35,21 +37,97 @@ export default function InPersonSchedulingScreen() {
       return;
     }
 
-    try {
-      // In a real app, you'd update the match with the scheduling info
-      // await updateMatchAsync({ matchId, scheduledTime: date.toISOString(), meetingLocation: location });
-      
-      router.push({
-        pathname: '/scheduling/waiting' as any,
-        params: { itemId, type, method: 'in-person' }
-      });
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to schedule meeting');
-    }
+    setIsConfirmed(true);
+    // In-person scheduling is set - in a production app, you'd store the meeting details
+    // For now, show success and let users coordinate manually
+  };
+
+  const handleCompleteReturn = async () => {
+    if (!matchId) return;
+
+    Alert.alert(
+      'Complete Return',
+      'Has the item been successfully exchanged?',
+      [
+        { text: 'Not Yet', style: 'cancel' },
+        {
+          text: 'Yes, Complete',
+          onPress: async () => {
+            try {
+              await completeReturnAsync(matchId);
+              Alert.alert(
+                'Success!',
+                type === 'lost' ? 'Item successfully returned to you!' : 'Thank you for returning the item!',
+                [{ text: 'Done', onPress: () => router.replace(`/(tabs)/${type}` as any) }]
+              );
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to complete return');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const formatDate = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   const formatTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  const otherPartyLabel = type === 'lost' ? 'finder' : 'owner';
+
+  // Show success/scheduling confirmation view
+  if (isConfirmed) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.content, styles.centered]}>
+          <View style={[styles.iconContainer, { backgroundColor: theme.colors.success + '20' }]}>
+            <Ionicons name="checkmark-circle" size={64} color={theme.colors.success} />
+          </View>
+
+          <Text style={[theme.typography.h2, { color: theme.colors.text, textAlign: 'center', marginTop: 24 }]}>
+            Meeting Scheduled!
+          </Text>
+
+          <Text style={[theme.typography.body, { color: theme.colors.textSecondary, textAlign: 'center', marginTop: 12, paddingHorizontal: 24, lineHeight: 24 }]}>
+            Coordinate with the {otherPartyLabel} to meet at your scheduled time and location.
+          </Text>
+
+          <Card style={{ marginTop: 32, width: '100%' }}>
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text, marginBottom: 12 }]}>Meeting Details</Text>
+            <View style={styles.summaryRow}>
+              <Ionicons name="calendar-outline" size={18} color={theme.colors.textSecondary} />
+              <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 8 }]}>
+                {formatDate(date)} at {formatTime(date)}
+              </Text>
+            </View>
+            <View style={[styles.summaryRow, { marginTop: 8 }]}>
+              <Ionicons name="location-outline" size={18} color={theme.colors.textSecondary} />
+              <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 8 }]}>{location}</Text>
+            </View>
+            {notes && (
+              <View style={[styles.summaryRow, { marginTop: 8 }]}>
+                <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
+                <Text style={[theme.typography.body, { color: theme.colors.text, marginLeft: 8 }]}>{notes}</Text>
+              </View>
+            )}
+          </Card>
+        </View>
+
+        <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+          <Button 
+            title={isCompleting ? "Completing..." : "Mark as Returned"} 
+            onPress={handleCompleteReturn}
+            disabled={isCompleting}
+          />
+          <TouchableOpacity 
+            style={{ marginTop: 12, alignItems: 'center' }}
+            onPress={() => router.replace(`/(tabs)/${type}` as any)}
+          >
+            <Text style={[theme.typography.body, { color: theme.colors.primary }]}>I'll do this later</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -62,12 +140,12 @@ export default function InPersonSchedulingScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
         <Text style={[theme.typography.h2, { color: theme.colors.text }]}>
           Schedule a meetup
         </Text>
         <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginTop: 8 }]}>
-          Choose a time and place to meet
+          Choose a time and place to meet the {otherPartyLabel}
         </Text>
 
         {/* Date Picker */}
@@ -146,11 +224,24 @@ export default function InPersonSchedulingScreen() {
             </View>
           )}
         </Card>
+
+        {/* Safety Tips */}
+        <Card style={{ marginTop: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.success} />
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text, marginLeft: 8 }]}>Safety Tips</Text>
+          </View>
+          <Text style={[theme.typography.small, { color: theme.colors.textSecondary, lineHeight: 20 }]}>
+            • Meet in a public, well-lit area{'\n'}
+            • Consider bringing a friend{'\n'}
+            • Verify the item before completing the exchange
+          </Text>
+        </Card>
       </ScrollView>
 
       {/* Footer */}
       <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-        <Button title="Confirm Meeting" onPress={handleConfirm} loading={isUpdatingMatch} />
+        <Button title="Confirm Meeting" onPress={handleConfirm} disabled={!location.trim()} />
       </View>
     </View>
   );
@@ -158,6 +249,18 @@ export default function InPersonSchedulingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  iconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -168,7 +271,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   content: { flex: 1 },
-  scrollContent: { padding: 16 },
+  scrollContent: { flex: 1 },
+  scrollContentContainer: { padding: 16 },
   dateTimeRow: { flexDirection: 'row', gap: 12 },
   dateTimeButton: {
     flex: 1,

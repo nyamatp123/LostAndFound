@@ -1,31 +1,39 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
+import { useMatches } from '../../hooks/useMatches';
+import { ReturnMethod } from '../../types';
 
-type ReturnMethod = 'in-person' | 'lost-and-found';
+type PreferenceOption = 'in_person' | 'local_lost_and_found' | 'no_preference';
 
 export default function SchedulingPreferenceScreen() {
   const theme = useAppTheme();
-  const { itemId, type } = useLocalSearchParams<{ itemId: string; type: string }>();
-  const [selectedMethod, setSelectedMethod] = useState<ReturnMethod | null>(null);
+  const { matchId, type } = useLocalSearchParams<{ matchId: string; type: string }>();
+  const [selectedMethod, setSelectedMethod] = useState<PreferenceOption | null>(null);
+  const { updatePreferenceAsync, isUpdatingPreference } = useMatches();
 
-  const handleContinue = () => {
-    if (!selectedMethod) return;
+  const handleContinue = async () => {
+    if (!selectedMethod || !matchId) return;
 
-    if (selectedMethod === 'in-person') {
-      router.push({
-        pathname: '/scheduling/in-person' as any,
-        params: { itemId, type }
+    try {
+      await updatePreferenceAsync({
+        id: matchId,
+        data: {
+          preference: selectedMethod as ReturnMethod,
+        },
       });
-    } else {
+
+      // Navigate to waiting screen to see if other party has submitted
       router.push({
-        pathname: '/scheduling/lost-and-found' as any,
-        params: { itemId, type }
+        pathname: '/scheduling/waiting' as any,
+        params: { matchId, type }
       });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to save preference');
     }
   };
 
@@ -35,7 +43,7 @@ export default function SchedulingPreferenceScreen() {
     description,
     icon,
   }: {
-    method: ReturnMethod;
+    method: PreferenceOption;
     title: string;
     description: string;
     icon: string;
@@ -81,17 +89,24 @@ export default function SchedulingPreferenceScreen() {
 
         <View style={styles.options}>
           <MethodOption
-            method="in-person"
+            method="in_person"
             title="Meet In-Person"
             description="Schedule a time and place to meet the other party"
             icon="people-outline"
           />
 
           <MethodOption
-            method="lost-and-found"
+            method="local_lost_and_found"
             title="Lost & Found Office"
             description="Drop off or pick up at a campus Lost & Found location"
             icon="business-outline"
+          />
+
+          <MethodOption
+            method="no_preference"
+            title="I Don't Mind"
+            description="Let the other party decide the return method"
+            icon="hand-left-outline"
           />
         </View>
 
@@ -113,9 +128,9 @@ export default function SchedulingPreferenceScreen() {
       {/* Footer */}
       <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
         <Button
-          title="Continue"
+          title={isUpdatingPreference ? "Saving..." : "Continue"}
           onPress={handleContinue}
-          disabled={!selectedMethod}
+          disabled={!selectedMethod || isUpdatingPreference}
         />
       </View>
     </View>

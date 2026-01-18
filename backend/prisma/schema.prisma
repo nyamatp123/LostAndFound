@@ -40,19 +40,26 @@ model Item {
 }
 
 model Match {
-  id                   Int      @id @default(autoincrement())
+  id                   Int       @id @default(autoincrement())
   lostItemId           Int
   foundItemId          Int
   confidence           Float
   breakdown            Json
   explanation          String
-  status               String   @default("pending")
-  confirmedByLostUser  Boolean  @default(false)
-  confirmedByFoundUser Boolean  @default(false)
+  status               String    @default("pending")
+  confirmedByLostUser  Boolean   @default(false)
+  confirmedByFoundUser Boolean   @default(false)
   proofDetails         String?
-  createdAt            DateTime @default(now())
-  foundItem            Item     @relation("foundMatches", fields: [foundItemId], references: [id])
-  lostItem             Item     @relation("lostMatches", fields: [lostItemId], references: [id])
+  // Scheduling and return method fields
+  lostUserPreference   String?   // 'in_person', 'local_lost_and_found', 'no_preference'
+  foundUserPreference  String?   // 'in_person', 'local_lost_and_found', 'no_preference'
+  resolvedReturnMethod String?   // The final determined method after both submit
+  returnLocation       String?   // L&F location name/id if applicable
+  notifiedAt           DateTime? // When the finder was notified to drop off
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  foundItem            Item      @relation("foundMatches", fields: [foundItemId], references: [id])
+  lostItem             Item      @relation("lostMatches", fields: [lostItemId], references: [id])
 }
 
 model Notification {

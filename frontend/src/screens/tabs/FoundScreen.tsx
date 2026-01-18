@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Image,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,7 @@ import { useAppTheme } from '../../theme';
 import { Card } from '../../components/common/Card';
 import { LiquidPill } from '../../components/common/LiquidPill';
 import { useItems } from '../../hooks/useItems';
+import { useMatches } from '../../hooks/useMatches';
 import { Item } from '../../types';
 
 // Helper to get image URL from item
@@ -34,6 +36,7 @@ const getItemImage = (item: Item): string | undefined => {
 export default function FoundScreen() {
   const theme = useAppTheme();
   const { items, isLoading, refetch } = useItems('found');
+  const { matches } = useMatches();
 
   // Categorize items for found tab
   const foundItems = items.filter((item: Item) => item.status === 'unfound' || item.status === 'found');
@@ -42,8 +45,14 @@ export default function FoundScreen() {
 
   const handleItemPress = (item: Item) => {
     if (item.status === 'matched') {
-      // Open scheduling flow for matched items
-      router.push(`/scheduling/preference?itemId=${item.id}&type=found`);
+      // Find the match for this found item
+      const match = matches?.find((m: any) => String(m.foundItemId) === String(item.id));
+      if (match) {
+        router.push(`/scheduling/preference?matchId=${match.id}&type=found`);
+      } else {
+        // Fallback - try to navigate anyway, the preference screen will handle it
+        Alert.alert('Match Not Found', 'Unable to find match details. Please try again.');
+      }
     } else {
       router.push(`/found/${item.id}`);
     }

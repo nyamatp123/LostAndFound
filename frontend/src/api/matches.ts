@@ -7,12 +7,23 @@ export interface CreateMatchData {
 }
 
 export interface UpdateMatchPreferenceData {
-  returnMethodPreference: ReturnMethod;
+  preference: ReturnMethod;
   returnLocation?: string;
+}
+
+export interface NotifyReturnData {
+  locationId: string;
+  locationName: string;
 }
 
 export interface GetMatchesParams {
   status?: string;
+}
+
+export interface MatchStatusResponse extends Match {
+  userRole: 'lost' | 'found';
+  bothSubmitted: boolean;
+  isResolved: boolean;
 }
 
 export const matchesApi = {
@@ -23,6 +34,11 @@ export const matchesApi = {
 
   getMatch: async (id: string): Promise<Match> => {
     const response = await apiClient.get<Match>(`/matches/${id}`);
+    return response.data;
+  },
+
+  getMatchStatus: async (id: string): Promise<MatchStatusResponse> => {
+    const response = await apiClient.get<MatchStatusResponse>(`/matches/${id}/status`);
     return response.data;
   },
 
@@ -46,8 +62,13 @@ export const matchesApi = {
     return response.data;
   },
 
-  notifyReturn: async (id: string): Promise<Match> => {
-    const response = await apiClient.post<Match>(`/matches/${id}/notify`);
+  notifyReturn: async (id: string, data: NotifyReturnData): Promise<{ success: boolean; message: string; match: Match }> => {
+    const response = await apiClient.post<{ success: boolean; message: string; match: Match }>(`/matches/${id}/notify`, data);
+    return response.data;
+  },
+
+  completeReturn: async (id: string): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.post<{ success: boolean; message: string }>(`/matches/${id}/complete`);
     return response.data;
   },
 

@@ -38,13 +38,13 @@ export interface Match {
   foundItemId: string;
   lostUserId: string;
   foundUserId: string;
-  status: 'pending' | 'confirmed' | 'rejected' | 'completed';
+  status: 'pending' | 'confirmed' | 'rejected' | 'completed' | 'scheduling' | 'awaiting_pickup';
   score: number;
   lostUserPreference?: ReturnMethod;
   foundUserPreference?: ReturnMethod;
   resolvedReturnMethod?: ReturnMethod;
   returnLocation?: string;
-  hasNotified?: boolean;
+  notifiedAt?: string;
   createdAt: string;
   updatedAt: string;
   lostItem?: Item;
