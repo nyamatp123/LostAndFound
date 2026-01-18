@@ -14,7 +14,8 @@ interface AddReviewScreenProps {
 export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
   const theme = useAppTheme();
   const params = useLocalSearchParams<{
-    location: string;
+    latitude: string;
+    longitude: string;
     timestamp: string;
     name: string;
     category: string;
@@ -27,12 +28,16 @@ export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
 
   const handleSubmit = async () => {
     try {
+      const latitude = parseFloat(params.latitude || '0');
+      const longitude = parseFloat(params.longitude || '0');
+      
       await createItemAsync({
         type: itemType,
         title: params.name || '',
         category: params.category || '',
         description: params.description || '',
-        location: params.location || '',
+        location: JSON.stringify({ latitude, longitude }),
+        coordinates: { latitude, longitude },
         timestamp: params.timestamp || new Date().toISOString(),
         images: params.imageUri ? [params.imageUri] : [],
       });
@@ -132,7 +137,11 @@ export default function AddReviewScreen({ itemType }: AddReviewScreenProps) {
             <Ionicons name="location-outline" size={20} color={theme.colors.textSecondary} />
             <View style={styles.detailText}>
               <Text style={[theme.typography.small, { color: theme.colors.textSecondary }]}>Location</Text>
-              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{params.location}</Text>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+                {params.latitude && params.longitude
+                  ? `${parseFloat(params.latitude).toFixed(4)}, ${parseFloat(params.longitude).toFixed(4)}`
+                  : 'Not specified'}
+              </Text>
             </View>
           </View>
 
