@@ -5,6 +5,8 @@ import {
   UpdateMatchPreferenceData,
   NotifyReturnData,
   GetMatchesParams,
+  DeclineClaimData,
+  ProposeAlternativeData,
 } from '../api';
 
 export const useMatches = (params?: GetMatchesParams) => {
@@ -135,4 +137,108 @@ export const useMatchStatus = (matchId?: string, polling = false) => {
     error: matchStatusQuery.error,
     refetch: matchStatusQuery.refetch,
   };
+};
+
+// Get claims for finder (items I found that were claimed by others)
+export const useClaimsForFinder = () => {
+  const claimsQuery = useQuery({
+    queryKey: ['claimsForFinder'],
+    queryFn: () => matchesApi.getClaimsForFinder(),
+  });
+
+  return {
+    data: claimsQuery.data,
+    isLoading: claimsQuery.isLoading,
+    error: claimsQuery.error,
+    refetch: claimsQuery.refetch,
+  };
+};
+
+// Get claim details for finder review
+export const useClaimDetails = (matchId?: string) => {
+  const claimDetailsQuery = useQuery({
+    queryKey: ['claimDetails', matchId],
+    queryFn: () => matchesApi.getClaimDetails(matchId!),
+    enabled: !!matchId,
+  });
+
+  return {
+    data: claimDetailsQuery.data,
+    isLoading: claimDetailsQuery.isLoading,
+    error: claimDetailsQuery.error,
+    refetch: claimDetailsQuery.refetch,
+  };
+};
+
+// Accept a claim (finder action)
+export const useAcceptClaim = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (matchId: string) => matchesApi.acceptClaim(matchId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['claimsForFinder'] });
+      queryClient.invalidateQueries({ queryKey: ['claimDetails'] });
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+    },
+  });
+};
+
+// Decline a claim (finder action)
+export const useDeclineClaim = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ matchId, reason, message }: { matchId: string; reason: DeclineClaimData['reason']; message?: string }) =>
+      matchesApi.declineClaim(matchId, { reason, message }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['claimsForFinder'] });
+      queryClient.invalidateQueries({ queryKey: ['claimDetails'] });
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+    },
+  });
+};
+
+// Propose alternative (finder action)
+export const useProposeAlternative = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ matchId, ...data }: { matchId: string } & ProposeAlternativeData) =>
+      matchesApi.proposeAlternative(matchId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['claimsForFinder'] });
+      queryClient.invalidateQueries({ queryKey: ['claimDetails'] });
+    },
+  });
+};
+
+// Accept proposal (claimant action)
+export const useAcceptProposal = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (matchId: string) => matchesApi.acceptProposal(matchId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['matchStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+    },
+  });
+};
+
+// Reject proposal (claimant action)
+export const useRejectProposal = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (matchId: string) => matchesApi.rejectProposal(matchId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['matchStatus'] });
+    },
+  });
 };
