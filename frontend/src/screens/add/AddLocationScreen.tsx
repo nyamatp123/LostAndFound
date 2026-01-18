@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme';
 import { Button } from '../../components/common/Button';
+import { LocationPicker } from '../../components/maps/LocationPicker';
 
 interface AddLocationScreenProps {
   itemType: 'lost' | 'found';
@@ -11,18 +12,26 @@ interface AddLocationScreenProps {
 
 export default function AddLocationScreen({ itemType }: AddLocationScreenProps) {
   const theme = useAppTheme();
-  const [location, setLocation] = useState('');
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [error, setError] = useState('');
 
+  const handleLocationSelect = (coords: { latitude: number; longitude: number }) => {
+    setCoordinates(coords);
+    setError('');
+  };
+
   const handleNext = () => {
-    if (!location.trim()) {
-      setError('Please enter a location');
+    if (!coordinates) {
+      setError('Please select a location on the map');
       return;
     }
-    // Store in route params and navigate to next step
+    // Store coordinates in route params and navigate to next step
     router.push({
       pathname: `/${itemType}/add/timestamp` as any,
-      params: { location: location.trim() }
+      params: { 
+        latitude: coordinates.latitude.toString(),
+        longitude: coordinates.longitude.toString()
+      }
     });
   };
 
@@ -51,33 +60,17 @@ export default function AddLocationScreen({ itemType }: AddLocationScreenProps) 
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        {/* Location Input */}
-        <View style={styles.inputContainer}>
-          <Text style={[theme.typography.label, { color: theme.colors.text, marginBottom: 8 }]}>
-            Location
+        {/* Map Location Picker */}
+        <LocationPicker
+          onLocationSelect={handleLocationSelect}
+          initialCoords={coordinates || undefined}
+        />
+        
+        {error && (
+          <Text style={[theme.typography.small, { color: theme.colors.error, marginTop: 12, textAlign: 'center' }]}>
+            {error}
           </Text>
-          <View style={[styles.inputWrapper, { borderColor: error ? theme.colors.error : theme.colors.border, backgroundColor: theme.colors.surface }]}>
-            <Ionicons name="location-outline" size={20} color={theme.colors.textSecondary} style={{ marginRight: 8 }} />
-            <TextInput
-              style={[styles.input, { color: theme.colors.text }]}
-              placeholder="e.g., Library 2nd Floor"
-              placeholderTextColor={theme.colors.textTertiary}
-              value={location}
-              onChangeText={(text) => { setLocation(text); setError(''); }}
-            />
-          </View>
-          {error && (
-            <Text style={[theme.typography.small, { color: theme.colors.error, marginTop: 4 }]}>{error}</Text>
-          )}
-        </View>
-
-        {/* Map Placeholder */}
-        <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <Ionicons name="map-outline" size={48} color={theme.colors.textTertiary} />
-          <Text style={[theme.typography.body, { color: theme.colors.textTertiary, marginTop: 8 }]}>
-            Map integration coming soon
-          </Text>
-        </View>
+        )}
       </ScrollView>
 
       {/* Footer */}
@@ -115,23 +108,6 @@ const styles = StyleSheet.create({
   },
   content: { flex: 1 },
   scrollContent: { padding: 16 },
-  inputContainer: { marginBottom: 24 },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  input: { flex: 1, fontSize: 16 },
-  mapPlaceholder: {
-    height: 200,
-    borderRadius: 12,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   footer: {
     padding: 16,
     borderTopWidth: 1,

@@ -35,8 +35,8 @@ model Item {
   status          String   @default("active")
   createdAt       DateTime @default(now())
   user            User     @relation(fields: [userId], references: [id])
-  lostMatches     Match[]  @relation("lostMatches")
   foundMatches    Match[]  @relation("foundMatches")
+  lostMatches     Match[]  @relation("lostMatches")
 }
 
 model Match {
@@ -51,8 +51,8 @@ model Match {
   confirmedByFoundUser Boolean  @default(false)
   proofDetails         String?
   createdAt            DateTime @default(now())
-  lostItem             Item     @relation("lostMatches", fields: [lostItemId], references: [id])
   foundItem            Item     @relation("foundMatches", fields: [foundItemId], references: [id])
+  lostItem             Item     @relation("lostMatches", fields: [lostItemId], references: [id])
 }
 
 model Notification {
