@@ -78,7 +78,7 @@ export default function LostScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <Text style={[theme.typography.h2, { color: theme.colors.text }]}>Lost Items</Text>
+        <Text style={[theme.typography.h2, { color: theme.colors.text }]}>My Lost Items</Text>
         <TouchableOpacity
           style={[styles.addButton, { backgroundColor: theme.colors.primary }]}
           onPress={() => router.push('/lost/add/location')}
@@ -96,7 +96,7 @@ export default function LostScreen() {
         }
       >
         {renderCategory('Unfound', unfoundItems, 'unfound')}
-        {renderCategory('Found', foundItems, 'found')}
+        {renderCategory('Found', foundItems, 'matched')}
         {renderCategory('Returned', returnedItems, 'returned')}
       </ScrollView>
     </View>

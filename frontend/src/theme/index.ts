@@ -39,7 +39,7 @@ export const useTheme = () => {
         info: '#2196F3',
         // Category colors
         unfound: '#FF4444',
-        found: '#FFB300',
+        found: '#FF4444',
         matched: '#FFB300',
         returned: '#00C853',
       }
@@ -61,7 +61,7 @@ export const useTheme = () => {
         info: '#1976D2',
         // Category colors
         unfound: '#D32F2F',
-        found: '#F57C00',
+        found: '#D32F2F',
         matched: '#F57C00',
         returned: '#388E3C',
       };

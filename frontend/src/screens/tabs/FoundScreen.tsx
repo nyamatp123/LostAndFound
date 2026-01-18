@@ -87,7 +87,7 @@ export default function FoundScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <Text style={[theme.typography.h2, { color: theme.colors.text }]}>Found Items</Text>
+        <Text style={[theme.typography.h2, { color: theme.colors.text }]}>My Found Items</Text>
         <TouchableOpacity
           style={[styles.addButton, { backgroundColor: theme.colors.primary }]}
           onPress={() => router.push('/found/add/location')}
