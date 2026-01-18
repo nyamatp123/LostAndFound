@@ -5,7 +5,7 @@
   "main": "src/main.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "nodemon src/main.js",
+    "dev": "npx nodemon src/main.js",
     "start": "node src/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
