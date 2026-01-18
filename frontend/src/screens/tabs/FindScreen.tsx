@@ -58,12 +58,12 @@ export default function FindScreen() {
           text: 'Yes, Claim It',
           onPress: async () => {
             try {
-              await createMatchAsync({
+              const createdMatch = await createMatchAsync({
                 lostItemId: selectedItemId,
                 foundItemId: match.item.id,
               });
-              Alert.alert('Success', 'Match created! Proceed to scheduling.');
-              router.push(`/scheduling/preference?itemId=${selectedItemId}&type=lost`);
+              // Navigate to scheduling with the match ID
+              router.push(`/scheduling/preference?matchId=${createdMatch.id}&type=lost`);
             } catch (error: any) {
               Alert.alert('Error', error.message || 'Failed to create match');
             }

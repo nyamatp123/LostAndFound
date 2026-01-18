@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
+import { useMatches, useMatchStatus } from '../../hooks/useMatches';
 
 const LOCATIONS = [
   { id: 'main', name: 'Main Campus Lost & Found', address: 'Student Services Building, Room 101', hours: 'Mon-Fri 9am-5pm' },
@@ -15,21 +16,211 @@ const LOCATIONS = [
 
 export default function LostAndFoundSchedulingScreen() {
   const theme = useAppTheme();
-  const { itemId, type } = useLocalSearchParams<{ itemId: string; type: string }>();
+  const { matchId, type } = useLocalSearchParams<{ matchId: string; type: string }>();
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
+  
+  const { matchStatus, isLoading: isLoadingStatus } = useMatchStatus(matchId);
+  const { notifyReturnAsync, isNotifying, completeReturnAsync, isCompleting } = useMatches();
 
-  const handleConfirm = async () => {
-    if (!selectedLocation) {
+  const isFinder = type === 'found';
+  const isOwner = type === 'lost';
+
+  // If owner and finder already selected a location, show that
+  useEffect(() => {
+    if (matchStatus?.returnLocation && isOwner) {
+      setSelectedLocation(matchStatus.returnLocation);
+    }
+  }, [matchStatus, isOwner]);
+
+  // Handle finder confirming drop-off location and notifying owner
+  const handleNotifyDropOff = async () => {
+    if (!selectedLocation || !matchId) {
       Alert.alert('Error', 'Please select a location');
       return;
     }
 
-    router.push({
-      pathname: '/scheduling/waiting' as any,
-      params: { itemId, type, method: 'lost-and-found', locationId: selectedLocation }
-    });
+    const location = LOCATIONS.find(l => l.id === selectedLocation);
+    
+    try {
+      await notifyReturnAsync({
+        id: matchId,
+        data: {
+          locationId: selectedLocation,
+          locationName: location?.name || selectedLocation,
+        }
+      });
+      
+      Alert.alert(
+        'Owner Notified!',
+        `The owner has been notified that you'll drop off the item at ${location?.name}. Thank you for helping!`,
+        [{ text: 'Done', onPress: () => router.replace('/(tabs)/found' as any) }]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to notify owner');
+    }
   };
 
+  // Handle owner confirming pickup
+  const handleConfirmPickup = async () => {
+    if (!matchId) return;
+
+    Alert.alert(
+      'Confirm Pickup',
+      'Have you successfully picked up your item?',
+      [
+        { text: 'Not Yet', style: 'cancel' },
+        {
+          text: 'Yes, I Got It!',
+          onPress: async () => {
+            try {
+              await completeReturnAsync(matchId);
+              Alert.alert(
+                'Item Returned!',
+                'Congratulations on getting your item back!',
+                [{ text: 'Done', onPress: () => router.replace('/(tabs)/lost' as any) }]
+              );
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to complete return');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  if (isLoadingStatus) {
+    return (
+      <View style={[styles.container, styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  // Owner view - waiting for pickup
+  if (isOwner && matchStatus?.notifiedAt) {
+    const location = LOCATIONS.find(l => l.id === matchStatus.returnLocation) || 
+      { name: matchStatus.returnLocation, address: '', hours: '' };
+
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        {/* Header */}
+        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={[theme.typography.h3, { color: theme.colors.text }]}>Pickup Location</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={styles.content}>
+          {/* Success Icon */}
+          <View style={[styles.iconContainer, { backgroundColor: theme.colors.success + '20' }]}>
+            <Ionicons name="location" size={48} color={theme.colors.success} />
+          </View>
+
+          <Text style={[theme.typography.h2, { color: theme.colors.text, textAlign: 'center', marginTop: 24 }]}>
+            Your item is ready!
+          </Text>
+
+          <Text style={[theme.typography.body, { color: theme.colors.textSecondary, textAlign: 'center', marginTop: 12, paddingHorizontal: 24 }]}>
+            The finder has dropped off your item. Pick it up at:
+          </Text>
+
+          {/* Location Card */}
+          <Card style={{ marginTop: 24, width: '100%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              <View style={[styles.locationIcon, { backgroundColor: theme.colors.primary + '20' }]}>
+                <Ionicons name="business" size={24} color={theme.colors.primary} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+                  {location.name}
+                </Text>
+                {location.address && (
+                  <Text style={[theme.typography.small, { color: theme.colors.textSecondary, marginTop: 4 }]}>
+                    {location.address}
+                  </Text>
+                )}
+                {location.hours && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                    <Ionicons name="time-outline" size={14} color={theme.colors.textTertiary} />
+                    <Text style={[theme.typography.caption, { color: theme.colors.textTertiary, marginLeft: 4 }]}>
+                      {location.hours}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </Card>
+
+          {/* Info */}
+          <Card style={{ marginTop: 16, width: '100%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Ionicons name="information-circle-outline" size={20} color={theme.colors.primary} />
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text, marginLeft: 8 }]}>
+                What to bring
+              </Text>
+            </View>
+            <Text style={[theme.typography.small, { color: theme.colors.textSecondary, lineHeight: 20 }]}>
+              • A valid student or staff ID{'\n'}
+              • Description of your item to verify ownership
+            </Text>
+          </Card>
+        </View>
+
+        {/* Footer */}
+        <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+          <Button 
+            title={isCompleting ? "Confirming..." : "I've Picked Up My Item"} 
+            onPress={handleConfirmPickup}
+            disabled={isCompleting}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  // Owner view - waiting for finder to drop off
+  if (isOwner) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        {/* Header */}
+        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={[theme.typography.h3, { color: theme.colors.text }]}>Waiting for Drop-off</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={[styles.content, styles.centered]}>
+          <View style={[styles.iconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+
+          <Text style={[theme.typography.h2, { color: theme.colors.text, textAlign: 'center', marginTop: 24 }]}>
+            Waiting for the finder
+          </Text>
+
+          <Text style={[theme.typography.body, { color: theme.colors.textSecondary, textAlign: 'center', marginTop: 12, paddingHorizontal: 24, lineHeight: 24 }]}>
+            The finder will drop off your item at a Lost & Found location and notify you.
+            {'\n\n'}
+            We'll send you a notification as soon as your item is ready for pickup!
+          </Text>
+        </View>
+
+        <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+          <Button 
+            title="I'll Wait" 
+            onPress={() => router.replace('/(tabs)/lost' as any)}
+            variant="secondary"
+          />
+        </View>
+      </View>
+    );
+  }
+
+  // Finder view - select location and notify
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
@@ -37,18 +228,16 @@ export default function LostAndFoundSchedulingScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[theme.typography.h3, { color: theme.colors.text }]}>Lost & Found Office</Text>
+        <Text style={[theme.typography.h3, { color: theme.colors.text }]}>Drop-off Location</Text>
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer}>
         <Text style={[theme.typography.h2, { color: theme.colors.text }]}>
-          Select a location
+          Where will you drop off?
         </Text>
         <Text style={[theme.typography.body, { color: theme.colors.textSecondary, marginTop: 8 }]}>
-          {type === 'lost'
-            ? 'Choose where you would like to pick up your item'
-            : 'Choose where you will drop off the item'}
+          Choose a Lost & Found location to drop off the item
         </Text>
 
         {/* Location Options */}
@@ -100,16 +289,21 @@ export default function LostAndFoundSchedulingScreen() {
             </Text>
           </View>
           <Text style={[theme.typography.small, { color: theme.colors.textSecondary, lineHeight: 20 }]}>
-            {type === 'lost'
-              ? '1. The finder will drop off the item at the selected location\n2. You\'ll receive a notification when it arrives\n3. Bring your ID to claim the item'
-              : '1. Drop off the item at the selected location\n2. Provide a description of the owner if possible\n3. The owner will be notified to pick it up'}
+            1. Drop off the item at your selected location{'\n'}
+            2. Tap "Notify Owner" to let them know{'\n'}
+            3. The owner will receive a notification to pick it up{'\n'}
+            4. Thank you for helping reunite someone with their item!
           </Text>
         </Card>
       </ScrollView>
 
       {/* Footer */}
       <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-        <Button title="Confirm Location" onPress={handleConfirm} disabled={!selectedLocation} />
+        <Button 
+          title={isNotifying ? "Notifying..." : "Notify Owner & Confirm Drop-off"} 
+          onPress={handleNotifyDropOff} 
+          disabled={!selectedLocation || isNotifying} 
+        />
       </View>
     </View>
   );
@@ -117,6 +311,10 @@ export default function LostAndFoundSchedulingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -126,8 +324,28 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: 1,
   },
-  content: { flex: 1 },
-  scrollContent: { padding: 16 },
+  content: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+  },
+  scrollContent: { flex: 1 },
+  scrollContentContainer: { padding: 16 },
+  iconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  locationIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   locations: { marginTop: 24, gap: 12 },
   locationCard: {
     padding: 16,

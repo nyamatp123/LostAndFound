@@ -1,6 +1,115 @@
 const { prisma } = require("../database/prisma");
 const { createNotification } = require("../utils/notifications");
-const { calculateBatchMatchScores, calculateDistanceMeters } = require("../utils/matching");
+const { calculateBatchMatchScores, calculateDistanceMeters, calculateMatchScore } = require("../utils/matching");
+
+/**
+ * Create a new match between a lost item and found item
+ */
+const createMatch = async (req, res) => {
+  try {
+    const user = req.user;
+    const { lostItemId, foundItemId } = req.body;
+
+    if (!lostItemId || !foundItemId) {
+      return res.status(400).json({
+        error: "Both lostItemId and foundItemId are required"
+      });
+    }
+
+    const lostId = parseInt(lostItemId);
+    const foundId = parseInt(foundItemId);
+
+    if (isNaN(lostId) || isNaN(foundId)) {
+      return res.status(400).json({
+        error: "Invalid item IDs"
+      });
+    }
+
+    // Get both items
+    const [lostItem, foundItem] = await Promise.all([
+      prisma.item.findUnique({ where: { id: lostId } }),
+      prisma.item.findUnique({ where: { id: foundId } })
+    ]);
+
+    if (!lostItem) {
+      return res.status(404).json({ error: "Lost item not found" });
+    }
+
+    if (!foundItem) {
+      return res.status(404).json({ error: "Found item not found" });
+    }
+
+    // Verify the user owns the lost item
+    if (lostItem.userId !== user.id) {
+      return res.status(403).json({
+        error: "Not authorized to create a match for this lost item"
+      });
+    }
+
+    // Check if a match already exists
+    const existingMatch = await prisma.match.findFirst({
+      where: {
+        lostItemId: lostId,
+        foundItemId: foundId
+      }
+    });
+
+    if (existingMatch) {
+      return res.status(409).json({
+        error: "A match already exists for these items",
+        match: existingMatch
+      });
+    }
+
+    // Calculate match score
+    const matchResult = await calculateMatchScore(lostItem, foundItem);
+
+    // Create the match
+    const match = await prisma.match.create({
+      data: {
+        lostItemId: lostId,
+        foundItemId: foundId,
+        confidence: matchResult.finalScore,
+        breakdown: matchResult.breakdown,
+        explanation: `Match score: ${matchResult.finalScore.toFixed(1)}%`,
+        status: "pending",
+        confirmedByLostUser: true // Owner is claiming, so they confirm
+      },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        },
+        foundItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        }
+      }
+    });
+
+    // Notify the finder about the claim
+    await createNotification(
+      foundItem.userId,
+      "match_created",
+      "Someone Claimed Your Found Item!",
+      `${user.name} believes the ${foundItem.title} you found belongs to them.`,
+      {
+        matchId: match.id,
+        lostItemId: lostId,
+        foundItemId: foundId
+      }
+    );
+
+    res.status(201).json(match);
+  } catch (error) {
+    console.error("Create match error:", error);
+    res.status(500).json({
+      error: "Internal server error while creating match"
+    });
+  }
+};
 
 /**
  * Get potential matches for a lost item
@@ -474,9 +583,381 @@ const rejectMatch = async (req, res) => {
   }
 };
 
+/**
+ * Resolve the return method based on both users' preferences
+ * Rules:
+ * - If both choose "no_preference", use "in_person"
+ * - If either chooses "local_lost_and_found", use "local_lost_and_found"
+ * - If one prefers "in_person" and other "no_preference", use "in_person"
+ */
+const resolveReturnMethod = (lostPref, foundPref) => {
+  // If either explicitly wants L&F, use L&F
+  if (lostPref === "local_lost_and_found" || foundPref === "local_lost_and_found") {
+    return "local_lost_and_found";
+  }
+  // Otherwise default to in-person (covers both no_preference, or in_person preference)
+  return "in_person";
+};
+
+/**
+ * Update a user's return method preference for a match
+ */
+const updatePreference = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+    const { preference, returnLocation } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({
+        error: "Invalid match ID"
+      });
+    }
+
+    // Validate preference
+    const validPreferences = ["in_person", "local_lost_and_found", "no_preference"];
+    if (!preference || !validPreferences.includes(preference)) {
+      return res.status(400).json({
+        error: "Invalid preference. Must be one of: in_person, local_lost_and_found, no_preference"
+      });
+    }
+
+    // Get match with related items
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: true,
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({
+        error: "Match not found"
+      });
+    }
+
+    // Determine which user is updating
+    let updateData = {};
+    const isLostUser = match.lostItem.userId === user.id;
+    const isFoundUser = match.foundItem.userId === user.id;
+
+    if (!isLostUser && !isFoundUser) {
+      return res.status(403).json({
+        error: "Not authorized to update preference for this match"
+      });
+    }
+
+    if (isLostUser) {
+      updateData.lostUserPreference = preference;
+    } else {
+      updateData.foundUserPreference = preference;
+    }
+
+    // If location is provided for L&F option, save it
+    if (returnLocation && preference === "local_lost_and_found") {
+      updateData.returnLocation = returnLocation;
+    }
+
+    // Update the match
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: updateData
+    });
+
+    // Check if both users have submitted preferences
+    const lostPref = isLostUser ? preference : updatedMatch.lostUserPreference;
+    const foundPref = isFoundUser ? preference : updatedMatch.foundUserPreference;
+
+    if (lostPref && foundPref) {
+      // Both have submitted - resolve the return method
+      const resolvedMethod = resolveReturnMethod(lostPref, foundPref);
+      
+      await prisma.match.update({
+        where: { id: matchId },
+        data: {
+          resolvedReturnMethod: resolvedMethod,
+          status: "scheduling"
+        }
+      });
+
+      // Notify both users about the resolved method
+      const methodText = resolvedMethod === "local_lost_and_found" 
+        ? "Lost & Found office pickup/drop-off" 
+        : "in-person meeting";
+
+      await createNotification(
+        match.lostItem.userId,
+        "method_resolved",
+        "Return Method Confirmed",
+        `Your item will be returned via ${methodText}.`,
+        { matchId, resolvedMethod }
+      );
+
+      await createNotification(
+        match.foundItem.userId,
+        "method_resolved",
+        "Return Method Confirmed",
+        `The item will be returned via ${methodText}.`,
+        { matchId, resolvedMethod }
+      );
+    } else {
+      // Notify the other party that this user has submitted their preference
+      const otherUserId = isLostUser ? match.foundItem.userId : match.lostItem.userId;
+      
+      await createNotification(
+        otherUserId,
+        "preference_submitted",
+        "Return Preference Submitted",
+        `${user.name} has submitted their return method preference. Please submit yours!`,
+        { matchId }
+      );
+    }
+
+    // Fetch and return the updated match
+    const finalMatch = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        },
+        foundItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        }
+      }
+    });
+
+    res.json(finalMatch);
+  } catch (error) {
+    console.error("Update preference error:", error);
+    res.status(500).json({
+      error: "Internal server error while updating preference"
+    });
+  }
+};
+
+/**
+ * Get match status (for polling from waiting screen)
+ */
+const getMatchStatus = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({
+        error: "Invalid match ID"
+      });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        },
+        foundItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } }
+          }
+        }
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({
+        error: "Match not found"
+      });
+    }
+
+    // Verify user is part of this match
+    if (match.lostItem.userId !== user.id && match.foundItem.userId !== user.id) {
+      return res.status(403).json({
+        error: "Not authorized to view this match"
+      });
+    }
+
+    // Return match with user role context
+    const userRole = match.lostItem.userId === user.id ? "lost" : "found";
+    const bothSubmitted = !!(match.lostUserPreference && match.foundUserPreference);
+
+    res.json({
+      ...match,
+      userRole,
+      bothSubmitted,
+      isResolved: !!match.resolvedReturnMethod
+    });
+  } catch (error) {
+    console.error("Get match status error:", error);
+    res.status(500).json({
+      error: "Internal server error while fetching match status"
+    });
+  }
+};
+
+/**
+ * Notify that the item has been dropped off at L&F (called by finder)
+ */
+const notifyReturn = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+    const { locationId, locationName } = req.body;
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({
+        error: "Invalid match ID"
+      });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        },
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({
+        error: "Match not found"
+      });
+    }
+
+    // Only the finder (found item user) can notify about drop-off
+    if (match.foundItem.userId !== user.id) {
+      return res.status(403).json({
+        error: "Only the finder can notify about item drop-off"
+      });
+    }
+
+    // Update match with notification timestamp and location
+    const updatedMatch = await prisma.match.update({
+      where: { id: matchId },
+      data: {
+        notifiedAt: new Date(),
+        returnLocation: locationId || locationName,
+        status: "awaiting_pickup"
+      }
+    });
+
+    // Notify the owner that their item has been dropped off
+    await createNotification(
+      match.lostItem.userId,
+      "item_dropped_off",
+      "Item Ready for Pickup!",
+      `Your ${match.lostItem.title} has been dropped off at ${locationName || locationId}. Please pick it up at your earliest convenience.`,
+      {
+        matchId,
+        locationId,
+        locationName,
+        itemTitle: match.lostItem.title
+      }
+    );
+
+    res.json({
+      success: true,
+      message: "Owner has been notified about the drop-off",
+      match: updatedMatch
+    });
+  } catch (error) {
+    console.error("Notify return error:", error);
+    res.status(500).json({
+      error: "Internal server error while notifying about return"
+    });
+  }
+};
+
+/**
+ * Mark item as picked up / returned (called by owner after pickup)
+ */
+const completeReturn = async (req, res) => {
+  try {
+    const user = req.user;
+    const matchId = parseInt(req.params.matchId);
+
+    if (isNaN(matchId)) {
+      return res.status(400).json({
+        error: "Invalid match ID"
+      });
+    }
+
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      include: {
+        lostItem: true,
+        foundItem: true
+      }
+    });
+
+    if (!match) {
+      return res.status(404).json({
+        error: "Match not found"
+      });
+    }
+
+    // Only the owner (lost item user) can mark as complete
+    if (match.lostItem.userId !== user.id) {
+      return res.status(403).json({
+        error: "Only the owner can mark the item as returned"
+      });
+    }
+
+    // Update match and item statuses
+    await prisma.match.update({
+      where: { id: matchId },
+      data: { status: "completed" }
+    });
+
+    await prisma.item.update({
+      where: { id: match.lostItem.id },
+      data: { status: "returned" }
+    });
+
+    await prisma.item.update({
+      where: { id: match.foundItem.id },
+      data: { status: "returned" }
+    });
+
+    // Notify the finder
+    await createNotification(
+      match.foundItem.userId,
+      "item_returned",
+      "Item Successfully Returned!",
+      `The owner has picked up their item. Thank you for helping!`,
+      { matchId }
+    );
+
+    res.json({
+      success: true,
+      message: "Item marked as returned successfully"
+    });
+  } catch (error) {
+    console.error("Complete return error:", error);
+    res.status(500).json({
+      error: "Internal server error while completing return"
+    });
+  }
+};
+
 module.exports = {
+  createMatch,
   getMatchesForItem,
   getPotentialMatches,
   confirmMatch,
-  rejectMatch
+  rejectMatch,
+  updatePreference,
+  getMatchStatus,
+  notifyReturn,
+  completeReturn
 };
