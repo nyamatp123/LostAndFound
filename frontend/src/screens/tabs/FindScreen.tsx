@@ -21,6 +21,29 @@ import { router } from 'expo-router';
 
 const { width, height } = Dimensions.get('window');
 
+// Helper to get image URL from item
+const getItemImage = (item: any): string | undefined => {
+  if (item.imageUrl) {
+    const imageUrl = item.imageUrl;
+    // Check if it's already a data URI or URL
+    if (imageUrl.startsWith('data:') || imageUrl.startsWith('http')) {
+      return imageUrl;
+    }
+    // Assume base64 and add prefix
+    return `data:image/jpeg;base64,${imageUrl}`;
+  }
+  if (item.imageUrls && item.imageUrls.length > 0) {
+    const firstImage = item.imageUrls[0];
+    // Check if it's already a data URI or URL
+    if (firstImage.startsWith('data:') || firstImage.startsWith('http')) {
+      return firstImage;
+    }
+    // Assume base64 and add prefix
+    return `data:image/jpeg;base64,${firstImage}`;
+  }
+  return undefined;
+};
+
 export default function FindScreen() {
   const theme = useAppTheme();
   const { items: lostItems } = useItems('lost');
@@ -42,7 +65,7 @@ export default function FindScreen() {
     }
   }, [unfoundItems, selectedItemId]);
 
-  const { potentialMatches, isLoading } = usePotentialMatches(selectedItemId);
+  const { potentialMatches, isLoading, refetch } = usePotentialMatches(selectedItemId);
 
   const selectedItem = unfoundItems.find((item: Item) => String(item.id) === selectedItemId);
 
@@ -101,7 +124,10 @@ export default function FindScreen() {
     });
   };
 
-  const renderMatchCard = (match: PotentialMatch, index: number) => (
+  const renderMatchCard = (match: PotentialMatch, index: number) => {
+    const imageUri = getItemImage(match.item);
+    
+    return (
     <View
       key={match.item.id}
       style={[
@@ -110,8 +136,8 @@ export default function FindScreen() {
       ]}
     >
       {/* Image */}
-      {match.item.imageUrl ? (
-        <Image source={{ uri: match.item.imageUrl }} style={styles.matchImage} />
+      {imageUri ? (
+        <Image source={{ uri: imageUri }} style={styles.matchImage} />
       ) : (
         <View style={[styles.matchImagePlaceholder, { backgroundColor: theme.colors.surface }]}>
           <Ionicons name="image-outline" size={64} color={theme.colors.textTertiary} />
@@ -158,7 +184,8 @@ export default function FindScreen() {
         />
       </View>
     </View>
-  );
+    );
+  };
 
   // No lost items state
   if (unfoundItems.length === 0) {
@@ -180,11 +207,18 @@ export default function FindScreen() {
     );
   }
 
+  const handleRefresh = () => {
+    refetch();
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header with Item Picker */}
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
         <Text style={[theme.typography.h2, { color: theme.colors.text }]}>Find Matches</Text>
+        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+          <Ionicons name="refresh-outline" size={24} color={theme.colors.primary} />
+        </TouchableOpacity>
       </View>
 
       {/* Item Selector */}
@@ -271,10 +305,16 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 16,
     paddingTop: 60,
     borderBottomWidth: 1,
+  },
+  refreshButton: {
+    padding: 8,
   },
   itemPicker: {
     flexDirection: 'row',
